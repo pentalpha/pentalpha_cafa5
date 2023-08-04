@@ -1,0 +1,11 @@
+*.npy
+*.xml
+cafa-5-protein-function-prediction/*
+*.dat
+*.obj
+t5embeds/*
+interpro/*
+datasets/*
+alphafold/*
+__pycache__/*
+*.txt
