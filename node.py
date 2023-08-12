@@ -9,23 +9,28 @@ import tensorflow as tf
 from tqdm import tqdm
 import pickle
 from skmultilearn.model_selection import iterative_train_test_split
+from sklearn import metrics
 
 class Node():
 
     tsv_columns = ['goid', 'node_depth', 'child_nodes', 'classes']
 
-    def __init__(self, goid, subclasses, subnodes, depth) -> None:
+    def __init__(self, goid, subclasses, subnodes, depth, aspect) -> None:
         self.goid = goid
         self.subclasses = subclasses
         self.subnodes = subnodes
         self.depth = depth
+        self.aspect = aspect
 
     def to_tsv(self):
-        return (self.goid + '\t' + str(self.depth) 
+        return (self.aspect
+                + '\t' + self.goid 
+                + '\t' + str(self.depth) 
                 + '\t' + ','.join([x.goid for x in self.subnodes]) 
                 + '\t' + ','.join(self.subclasses))
 
-    def create_train_dataset(self, datasets_dir, train_terms_all, train_protein_ids_all, train_plm_embeddings, max_samples=30000):
+    def create_train_dataset(self, datasets_dir, train_terms_all, 
+                             train_protein_ids_all, train_plm_embeddings, max_samples=30000):
         train_terms_updated = train_terms_all[train_terms_all['term'].isin(self.subclasses)]
         train_protein_ids = train_terms_updated['EntryID'].unique().tolist()
         train_protein_ids.sort()
@@ -40,7 +45,7 @@ class Node():
                                     for i in range(len(self.subclasses))}
         train_labels             = [np.array([0.0]*len(self.subclasses), dtype=np.float32) 
                                     for x in train_protein_ids]
-        print(len(train_terms_updated), len(self.subclasses), len(train_protein_ids))
+        print(self.goid + ':', len(self.subclasses), len(train_protein_ids))
         last_prot  = None
         go_indexes = []
         for index, row in train_terms_updated.iterrows():
@@ -114,19 +119,35 @@ class Node():
             tf.keras.layers.Dense(units=len(train_labels[0]),activation='sigmoid')
         ])
 
-
         # Compile model
         self.model.compile(
             optimizer=tf.keras.optimizers.Adam(learning_rate=0.001),
-            loss='binary_crossentropy',
-            metrics=['binary_accuracy', tf.keras.metrics.AUC()],
+            loss='binary_crossentropy'
         )
 
         self.history = self.model.fit(
             train_features, train_labels,
-            validation_data=(test_features, test_labels),
             batch_size=BATCH_SIZE,
             epochs=6)
+        
+        y_pred = self.model.predict(test_features)
+        '''y_pred_argmax=np.argmax(y_pred, axis=1)
+        #y_test_argmax=np.argmax(test_labels, axis=1)
+        cat_accuracy = metrics.CategoricalAccuracy()
+        cat_accuracy.update_state(test_labels, y_pred)
+        self.categorical_acc = cat_accuracy.result().numpy()
+        #self.f1 = metrics.f1_score(y_test_argmax, y_pred_argmax, average='samples')
+        #self.accuracy = metrics.accuracy_score(test_labels, y_pred)'''
+        try:
+            self.roc_auc_score = metrics.roc_auc_score(test_labels, y_pred)
+            self.average_precision_score = metrics.average_precision_score(test_labels, y_pred)
+            print(self.roc_auc_score, self.average_precision_score)
+            self.failed = False
+        except ValueError as err:
+            print(err)
+            print(test_labels[0])
+            print(test_labels.shape)
+            self.failed = True
         
     def erase_dataset(self):
         self.features = None
@@ -138,9 +159,9 @@ def node_factory(node_description_df_path: str) -> List[Node]:
     header = stream.readline()
     for rawline in stream.readlines():
         cells = rawline.rstrip('\n').split('\t')
-        goid, node_depth, child_nodes, classes = cells
+        aspect, goid, node_depth, child_nodes, classes = cells
         new_nodes.append(Node(
-            goid, classes.split(','), [], int(node_depth)
+            goid, classes.split(','), [], int(node_depth), aspect
         ))
     return new_nodes
 
@@ -153,20 +174,21 @@ def count_subclasses(children, children_descendants):
     return subclasses
 
 def create_node(go_id, classes: dict, graph: MultiDiGraph, 
-                id_to_name: dict, ident = 0, max_children = 250):
+                id_to_name: dict, aspect: str, ident = 0, max_children = 250):
     print('\t'*ident + 'Making node for', id_to_name[go_id])
     children = list(graph.predecessors(go_id))
     #TODO: len(children) > max_children
     children_descendants = [list(nx.ancestors(graph, child_id)) for child_id in children]
     n_subclasses = len(count_subclasses(children, children_descendants))
     subnodes = []
+    max_to_consider = max_children if len(children) < max_children else len(children)
     while n_subclasses > max_children:
         print('\t'*ident + 'Too big', n_subclasses)
         largest_class_index = 0
         for class_index in range(len(children)):
             if len(children_descendants[class_index]) > len(children_descendants[largest_class_index]):
                 largest_class_index = class_index
-        subnode = create_node(children[largest_class_index], classes, graph, id_to_name, ident = ident+1)
+        subnode = create_node(children[largest_class_index], classes, graph, id_to_name, aspect, ident = ident+1, max_children=max_children)
         children_descendants[largest_class_index] = []
         subnodes.append(subnode)
         n_subclasses = len(count_subclasses(children, children_descendants))
@@ -175,7 +197,7 @@ def create_node(go_id, classes: dict, graph: MultiDiGraph,
     all_subclasses = list(count_subclasses(children, children_descendants))
     print('\t'*ident + 'Made node for', id_to_name[go_id], 'with', 
           len(children), '+', [len(x) for x in children_descendants])
-    return Node(go_id, all_subclasses, subnodes, ident)
+    return Node(go_id, all_subclasses, subnodes, ident, aspect)
 
 def get_subnodes(nodes: List[Node]):
     new_nodes = []

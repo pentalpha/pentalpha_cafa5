@@ -9,3 +9,4 @@ datasets/*
 alphafold/*
 __pycache__/*
 *.txt
+mlruns/*

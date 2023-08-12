@@ -1,3 +1,6 @@
+import mlflow
+from mlflow.exceptions import MlflowException
+
 from networkx import MultiDiGraph
 #import tensorflow as tf
 import pandas as pd
@@ -65,7 +68,10 @@ def select_parent_nodes():
             removed += 1
     
     print('Removed', removed, 'nodes from gene ontology graph')
-    roots = ['GO:0003674', 'GO:0005575', 'GO:0008150']
+    #roots = [('GO:0003674', 'mf'), ('GO:0005575','cc'), ('GO:0008150', 'bp')]
+    #roots = [('GO:0003674', 'mf')]
+    #roots = [('GO:0003824', 'mf'), ('GO:0005488','mf'), ('GO:0005215', 'mf')]
+    roots = [('GO:0003824', 'mf'), ('GO:0005215', 'mf')]
 
     id_to_name = {id_: data.get('name') 
         for id_, data in graph.nodes(data=True)}
@@ -74,8 +80,8 @@ def select_parent_nodes():
     id_parents.sort(key=lambda x: x[1])
 
     root_nodes = []
-    for root in roots:
-        root_node = create_node(root, classes, graph, id_to_name)
+    for root, aspect in roots:
+        root_node = create_node(root, classes, graph, id_to_name, aspect, max_children=150)
         root_nodes.append(root_node)
     
     node_list1 = get_subnodes(root_nodes)
@@ -101,14 +107,38 @@ def create_node_datasets():
     if not path.exists(datasets_dir):
         mkdir(datasets_dir)
 
+    experiment_name = "GO Clf. Training"
+    try:
+        mlflow.set_experiment(experiment_name)
+    except MlflowException:
+        mlflow.create_experiment(experiment_name)
+    mlflow.start_run()
+
+    mlflow.log_param("GO Nodes", len(go_nodes))
+    mlflow.log_param("train_plm_embeddings", len(train_plm_embeddings))
+    mlflow.log_param("train_terms_all", len(train_terms_all))
+    
     for node in tqdm(go_nodes):
         node.create_train_dataset(datasets_dir, train_terms_all, train_protein_ids, train_plm_embeddings)
 
         node.train()
 
-        pickle_file_path = path.join(datasets_dir, node.goid.lstrip('GO:') + '_node.obj')
-        node.erase_dataset()
-        pickle.dump(node, open(pickle_file_path, 'wb'))
+        if not node.failed:
+            pickle_file_path = path.join(datasets_dir, node.goid.lstrip('GO:') + '_node.obj')
+            node.erase_dataset()
+            pickle.dump(node, open(pickle_file_path, 'wb'))
+    
+    go_nodes = [node for node in go_nodes if not node.failed]
+    roc_auc_list = [node.roc_auc_score for node in go_nodes]
+    avg_precision_list = [node.average_precision_score for node in go_nodes]
+    mlflow.log_metric("Min Precision",  min(avg_precision_list))
+    mlflow.log_metric("Avg. Precision", np.mean(avg_precision_list))
+    mlflow.log_metric("Max. Precision", max(avg_precision_list))
+
+    mlflow.log_metric("Min ROC AUC",  min(roc_auc_list))
+    mlflow.log_metric("Avg. ROC AUC", np.mean(roc_auc_list))
+    mlflow.log_metric("Max. ROC AUC", max(roc_auc_list))
+    mlflow.end_run() 
 
 ############################################################################
 #Inputs
