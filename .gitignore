@@ -10,3 +10,4 @@ alphafold/*
 __pycache__/*
 *.txt
 mlruns/*
+tmp/*

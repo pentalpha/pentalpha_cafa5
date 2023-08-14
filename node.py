@@ -10,10 +10,13 @@ from tqdm import tqdm
 import pickle
 from skmultilearn.model_selection import iterative_train_test_split
 from sklearn import metrics
+from time import time
+from metaheuristic_clf import ClassificationOptimizer
 
 class Node():
 
     tsv_columns = ['goid', 'node_depth', 'child_nodes', 'classes']
+    tsv_columns2 = ['goid', 'node_depth', 'n_classes', 'roc_auc_score', 'evol_time']
 
     def __init__(self, goid, subclasses, subnodes, depth, aspect) -> None:
         self.goid = goid
@@ -28,6 +31,14 @@ class Node():
                 + '\t' + str(self.depth) 
                 + '\t' + ','.join([x.goid for x in self.subnodes]) 
                 + '\t' + ','.join(self.subclasses))
+
+    def to_tsv_result(self):
+        return (self.aspect
+                + '\t' + self.goid 
+                + '\t' + str(self.depth)
+                + '\t' + str(len(self.subclasses))
+                + '\t' + str(self.roc_auc_score)
+                + '\t' + str(self.evol_time))
 
     def create_train_dataset(self, datasets_dir, train_terms_all, 
                              train_protein_ids_all, train_plm_embeddings, max_samples=30000):
@@ -101,12 +112,12 @@ class Node():
         #self.labels_file_path = labels_file_path
         #self.train_protein_ids = train_protein_ids
 
-    def train(self, test_size=0.2, batch_size=5120):
+    def train(self, test_size=0.25, batch_size=5120):
         print('Splitting')
         train_features, train_labels, test_features, test_labels = iterative_train_test_split(self.features, 
             self.train_labels, test_size = test_size)
         #assert len(train_plm_embeddings_train) == len(train_labels_train)
-        print('Creating model')
+        '''print('Creating model')
         INPUT_SHAPE = [train_features.shape[1]]
         print(train_features.shape)
         BATCH_SIZE = batch_size
@@ -130,7 +141,7 @@ class Node():
             batch_size=BATCH_SIZE,
             epochs=6)
         
-        y_pred = self.model.predict(test_features)
+        y_pred = self.model.predict(test_features)'''
         '''y_pred_argmax=np.argmax(y_pred, axis=1)
         #y_test_argmax=np.argmax(test_labels, axis=1)
         cat_accuracy = metrics.CategoricalAccuracy()
@@ -138,7 +149,7 @@ class Node():
         self.categorical_acc = cat_accuracy.result().numpy()
         #self.f1 = metrics.f1_score(y_test_argmax, y_pred_argmax, average='samples')
         #self.accuracy = metrics.accuracy_score(test_labels, y_pred)'''
-        try:
+        '''try:
             self.roc_auc_score = metrics.roc_auc_score(test_labels, y_pred)
             self.average_precision_score = metrics.average_precision_score(test_labels, y_pred)
             print(self.roc_auc_score, self.average_precision_score)
@@ -147,11 +158,45 @@ class Node():
             print(err)
             print(test_labels[0])
             print(test_labels.shape)
+            self.failed = True'''
+
+        start_time = time()
+        try:
+            ga = ClassificationOptimizer(train_features, test_features, 
+                                    train_labels, test_labels, 
+                                    gens=5, pop=20, parents=10)
+            ga.run_ga()
+            self.failed = False
+        except ValueError as err:
+            print(err)
+            self.evol_time = time() - start_time
+            self.roc_auc_score = 0.0
+            self.best_params = {}
             self.failed = True
+            return None
+        
+        self.evol_time = time() - start_time
+        print('GA terminando após', self.evol_time/60, 'minutos')
+        ga_info = [ga.solutions_by_generation, ga.fitness_by_generation, 
+                ga.evolved, ga.finish_type, self.evol_time]
+        annot_model = ga.reg
+        print("Best Params:", ga.best_params)
+        print('\n'.join([str(fitvec) for fitvec in ga.fitness_by_generation]))
+        print('evolved', ga.evolved)
+        print('ga.finish_type', ga.finish_type)
+        print('evol_time', self.evol_time)
+
+        print(annot_model.summary())
+
+        self.roc_auc_score = ga.score
+        self.best_params = ga.best_params
         
     def erase_dataset(self):
         self.features = None
         self.train_labels = None
+
+    def set_path(self, datasets_dir):
+        self.path = path.join(datasets_dir, self.goid.lstrip('GO:') + '_node.obj')
 
 def node_factory(node_description_df_path: str) -> List[Node]:
     stream = open(node_description_df_path, 'r')
@@ -246,4 +291,11 @@ def node_tsv(nodes: List[Node]):
     nodes.sort(key = lambda node: (node.depth, -len(node.subnodes), -len(node.subclasses), node.goid))
     for node in nodes:
         text.append(node.to_tsv())
+    return '\n'.join(text)
+
+def node_tsv_results(nodes: List[Node]):
+    text = ['\t'.join(Node.tsv_columns2)]
+    nodes.sort(key = lambda node: (node.depth, -len(node.subclasses), node.goid))
+    for node in nodes:
+        text.append(node.to_tsv_result())
     return '\n'.join(text)

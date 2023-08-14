@@ -1,3 +1,4 @@
+from multiprocessing import Pool
 import mlflow
 from mlflow.exceptions import MlflowException
 
@@ -22,7 +23,9 @@ from time import time
 import networkx as nx
 
 from prepare_data import *
-from node import Node, create_node, get_subnodes, node_factory, node_list, node_tsv, remove_redundant_nodes
+from node import (Node, create_node, get_subnodes, node_factory, 
+                  node_list, node_tsv, remove_redundant_nodes, 
+                  node_tsv_results)
 #base_dir_datasets = ''
 #base_dir_datasets = '/kaggle/input/d/pentalpha'
 
@@ -97,15 +100,30 @@ def select_parent_nodes():
 
 #Outputs
 datasets_dir = 'datasets'
+processes = 1
+
+def train_node(node_path, train_terms_all, train_protein_ids, train_plm_embeddings):
+    node = pickle.load(open(node_path, 'rb'))
+    node.create_train_dataset(datasets_dir, train_terms_all, train_protein_ids, train_plm_embeddings)
+    node.train()
+    if not node.failed:
+        pickle_file_path = path.join(datasets_dir, node.goid.lstrip('GO:') + '_node.obj')
+        node.erase_dataset()
+        pickle.dump(node, open(pickle_file_path, 'wb'))
+        return True
+    else:
+        os.remove(node_path)
+        return False
 
 def create_node_datasets():
     print('Loading terms, ids, and embeddings')
     train_terms_all, train_protein_ids, train_plm_embeddings, _ = load_train()
 
     go_nodes = node_factory(nodes_df_path)
-    
     if not path.exists(datasets_dir):
         mkdir(datasets_dir)
+    if not path.exists('tmp'):
+        mkdir('tmp')
 
     experiment_name = "GO Clf. Training"
     try:
@@ -118,26 +136,51 @@ def create_node_datasets():
     mlflow.log_param("train_plm_embeddings", len(train_plm_embeddings))
     mlflow.log_param("train_terms_all", len(train_terms_all))
     
+    go_node_paths = [path.join(datasets_dir, node.goid.lstrip('GO:') + '_node.obj')
+                     for node in go_nodes]
     for node in tqdm(go_nodes):
-        node.create_train_dataset(datasets_dir, train_terms_all, train_protein_ids, train_plm_embeddings)
-
-        node.train()
-
-        if not node.failed:
-            pickle_file_path = path.join(datasets_dir, node.goid.lstrip('GO:') + '_node.obj')
-            node.erase_dataset()
-            pickle.dump(node, open(pickle_file_path, 'wb'))
+        node.set_path(datasets_dir)
+        pickle.dump(node, open(node.path, 'wb'))
     
-    go_nodes = [node for node in go_nodes if not node.failed]
-    roc_auc_list = [node.roc_auc_score for node in go_nodes]
-    avg_precision_list = [node.average_precision_score for node in go_nodes]
-    mlflow.log_metric("Min Precision",  min(avg_precision_list))
-    mlflow.log_metric("Avg. Precision", np.mean(avg_precision_list))
-    mlflow.log_metric("Max. Precision", max(avg_precision_list))
+    go_node_params = [(node.path, train_terms_all, train_protein_ids, train_plm_embeddings)
+                      for node in go_nodes]
+    successes = None
+    if processes > 1:
+        with Pool(processes) as p:
+            successes = p.starmap(train_node, go_node_params)
+    else:
+        successes = [train_node(*params) for params in go_node_params]
 
-    mlflow.log_metric("Min ROC AUC",  min(roc_auc_list))
-    mlflow.log_metric("Avg. ROC AUC", np.mean(roc_auc_list))
-    mlflow.log_metric("Max. ROC AUC", max(roc_auc_list))
+    if successes:
+        go_node_paths = [go_node_params[i][0] for i in range(len(successes)) if successes[i]]
+        go_nodes_loaded = [pickle.load(open(go_node_path, 'rb')) for go_node_path in go_node_paths]
+
+        roc_auc_list = [node.roc_auc_score for node in go_nodes_loaded]
+        evol_times_list = [node.evol_time for node in go_nodes_loaded]
+        metaparams_list = [str(node.best_params) for node in go_nodes_loaded]
+        metaparams_txt = '\n'.join(metaparams_list) + '\n'
+
+        nodes_df_txt = node_tsv_results(go_nodes_loaded)
+
+        '''avg_precision_list = [node.average_precision_score for node in go_nodes_loaded]
+        mlflow.log_metric("Min Precision",  min(avg_precision_list))
+        mlflow.log_metric("Avg. Precision", np.mean(avg_precision_list))
+        mlflow.log_metric("Max. Precision", max(avg_precision_list))'''
+
+        mlflow.log_metric("Min Evol. Time",  min(evol_times_list))
+        mlflow.log_metric("Avg. Evol. Time", np.mean(evol_times_list))
+        mlflow.log_metric("Max. Evol. Time", max(evol_times_list))
+
+        mlflow.log_metric("Min ROC AUC",  min(roc_auc_list))
+        mlflow.log_metric("Avg. ROC AUC", np.mean(roc_auc_list))
+        mlflow.log_metric("Max. ROC AUC", max(roc_auc_list))
+
+        open('tmp/metaparameters_list.txt', 'w').write(metaparams_txt)
+        mlflow.log_artifact('tmp/metaparameters_list.txt')
+
+        open('tmp/nodes_df.tsv', 'w').write(nodes_df_txt)
+        mlflow.log_artifact('tmp/nodes_df.tsv')
+
     mlflow.end_run() 
 
 ############################################################################
