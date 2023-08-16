@@ -1,0 +1,12 @@
+{
+    "test_size": 0.6,
+    "roots": [["GO:0003824", "mf"], ["GO:0005215", "mf"]],
+    "datasets_dir": "datasets",
+    "models_dir": "models",
+    "results_dir": "results_test",
+    "processes": 1,
+    "gens": 2,
+    "pop": 5,
+    "parents": 3,
+    "max_children": 250
+}

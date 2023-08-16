@@ -4,11 +4,6 @@ import numpy as np
 from tqdm import tqdm
 from typing import List
 import subprocess
-import os
-import pcmap
-import multiprocessing
-import pickle
-import networkx as nx
 import obonet
 
 train_terms_path = 'cafa-5-protein-function-prediction/Train/train_terms.tsv'
@@ -102,7 +97,7 @@ def download_pdbs():
 def entry_to_str(entry):
     return entry['resID'].rstrip().lstrip()+'_'+ entry['chainID']
 
-def cc_json_to_matrix(pdb_path):
+'''def cc_json_to_matrix(pdb_path):
     cmap_path = pdb_path.replace('.pdb', '.cmap')
     if path.exists(cmap_path):
         return True
@@ -137,33 +132,6 @@ def cc_json_to_matrix(pdb_path):
     np.save(open(cmap_path, 'wb'), contact_map)
     return True
 
-'''
-    #partnership_list = []
-    #chains = set()    for entry in cc_json['data']:
-        chains.add(entry['root']['chainID'])
-        main = entry['root']['resID'].rstrip().lstrip()+'_'+ entry['root']['chainID']
-        atoms.add(main)
-        #print(entry['partners'])
-        partners = [part['resID'].rstrip().lstrip()+'_'+ part['chainID'] 
-                    for part in entry['partners']]
-        atoms.update(partners)
-        for partner in partners:
-            partnership_list.append((main, partner))
-    if len(chains) > 1:
-        print(len(chains), 'in', pdb_path)
-        return False
-    else:
-        atom_list = [int(x.split('_')[0]) for x in atoms]
-        partnership_list_int = [(int(a.split('_')[0]), int(b.split('_')[0])) for a,b in partnership_list]
-        atom_list.sort()
-        atom_partner_lists = [np.zeros(len(atom_list), dtype=np.float32) 
-                              for atom in atom_list]
-        for a, b in partnership_list_int:
-            atom_partner_lists[a-1][b-1] = 1.0
-        contact_map = np.asarray(atom_partner_lists)
-        np.save(open(pdb_path.replace('.pdb', '.cmap'), 'wb'), contact_map)
-        return True'''
-
 cmaps_path = 'alphafold/cmaps.npy'
 cmaps_uniprotids = 'alphafold/cmaps_ids.obj'
 def create_contact_maps():
@@ -195,16 +163,8 @@ def create_contact_maps():
     cmaps = np.asarray(cmaps, dtype=np.int32)
     np.save(open('alphafold/cmaps.npy', 'wb'), cmaps)
     pickle.dump(cmap_uniprotids, open(cmaps_uniprotids, 'wb'))
-    '''print('Filtering')
-    train_protein_ids = np.array([train_protein_ids[i] for i in range(len(train_protein_ids))
-                         if train_pdbs[i]])
-    train_plm_embeddings = np.array([train_plm_embeddings[i] for i in range(len(train_plm_embeddings))
-                         if train_pdbs[i]])
-    
-    np.save(open(train_plm_embeddings_with_prot_path, 'wb'), train_plm_embeddings)
-    np.save(open(train_protein_ids_with_prot_path, 'wb'), train_protein_ids)'''
     #for train_pdb in tqdm(train_pdbs):
-    #    success = cc_json_to_matrix(train_pdb)
+    #    success = cc_json_to_matrix(train_pdb)'''
         
     
 if __name__ == "__main__":

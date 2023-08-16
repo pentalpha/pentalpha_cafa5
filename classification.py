@@ -43,10 +43,10 @@ keras_classification = {
     'gene_values': {
         'batch_size': [1500, 8000], 
         'learning_rate': [0.0005, 0.05], 
-        'epochs': [4, 10],
-        'hidden1': [0.25, 1.5],
-        'hidden2': [0.25, 1.5],
-        'hidden3': [0.25, 1.5],
+        'epochs': [2, 3],
+        'hidden1': [0.25, 0.5],
+        'hidden2': [0.25, 0.5],
+        'hidden3': [0.25, 0.5],
         'n_layers': [2,2]},
     'discrete_gene_values': {
         'optimizer': ['AdamOptimizer'],

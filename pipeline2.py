@@ -1,30 +1,19 @@
 from multiprocessing import Pool
 import mlflow
 from mlflow.exceptions import MlflowException
-
-from networkx import MultiDiGraph
-#import tensorflow as tf
 import pandas as pd
 import numpy as np
-import seaborn as sns
-import matplotlib.pyplot as plt
 from os import path, mkdir
-#from gensim.models.doc2vec import Doc2Vec, TaggedDocument
-import gzip
-from lxml import etree
-import re
 from tqdm import tqdm
 import pickle
 import sys
-from time import time
-#from sklearn import metrics
-#from sklearn.model_selection import train_test_split
-#from metaheuristic import RegressionOptimizer
-import networkx as nx
+import json
+import os
+from go_classifier import GoClassifier
 
 from prepare_data import *
 from node import (Node, create_node, get_subnodes, node_factory, 
-                  node_list, node_tsv, remove_redundant_nodes, 
+                  node_tsv, remove_redundant_nodes, 
                   node_tsv_results)
 #base_dir_datasets = ''
 #base_dir_datasets = '/kaggle/input/d/pentalpha'
@@ -40,8 +29,11 @@ def sep_validation(np_array, val_perc=0.15):
     train_x, val_x = np.split(np_array, [val_start])
     return train_x, val_x
 
-############################################################################
+configs = json.load(open("config.json", 'r'))
+if not path.exists('tmp'):
+    mkdir('tmp')
 
+############################################################################
 
 #Outputs
 nodes_df_path = 'classification_nodes.tsv'
@@ -74,7 +66,7 @@ def select_parent_nodes():
     #roots = [('GO:0003674', 'mf'), ('GO:0005575','cc'), ('GO:0008150', 'bp')]
     #roots = [('GO:0003674', 'mf')]
     #roots = [('GO:0003824', 'mf'), ('GO:0005488','mf'), ('GO:0005215', 'mf')]
-    roots = [('GO:0003824', 'mf'), ('GO:0005215', 'mf')]
+    roots = configs['roots']
 
     id_to_name = {id_: data.get('name') 
         for id_, data in graph.nodes(data=True)}
@@ -84,8 +76,9 @@ def select_parent_nodes():
 
     root_nodes = []
     for root, aspect in roots:
-        root_node = create_node(root, classes, graph, id_to_name, aspect, max_children=150)
-        root_nodes.append(root_node)
+        new_nodes = create_node(root, classes, graph, id_to_name, aspect, 
+                                max_children=configs['max_children'])
+        root_nodes += new_nodes
     
     node_list1 = get_subnodes(root_nodes)
     print(len(node_list1), 'nodes')
@@ -99,15 +92,17 @@ def select_parent_nodes():
 #nodes_df_path
 
 #Outputs
-datasets_dir = 'datasets'
-processes = 1
+datasets_dir = configs['datasets_dir']
+models_dir = configs['models_dir']
+processes = configs['processes']
+test_size = configs['test_size']
 
 def train_node(node_path, train_terms_all, train_protein_ids, train_plm_embeddings):
     node = pickle.load(open(node_path, 'rb'))
     node.create_train_dataset(datasets_dir, train_terms_all, train_protein_ids, train_plm_embeddings)
-    node.train()
+    node.train(models_dir, test_size=test_size)
     if not node.failed:
-        pickle_file_path = path.join(datasets_dir, node.goid.lstrip('GO:') + '_node.obj')
+        pickle_file_path = path.join(datasets_dir, node.name.lstrip('GO:') + '_node.obj')
         node.erase_dataset()
         pickle.dump(node, open(pickle_file_path, 'wb'))
         return True
@@ -122,8 +117,8 @@ def create_node_datasets():
     go_nodes = node_factory(nodes_df_path)
     if not path.exists(datasets_dir):
         mkdir(datasets_dir)
-    if not path.exists('tmp'):
-        mkdir('tmp')
+    if not path.exists(models_dir):
+        mkdir(models_dir)
 
     experiment_name = "GO Clf. Training"
     try:
@@ -162,11 +157,6 @@ def create_node_datasets():
 
         nodes_df_txt = node_tsv_results(go_nodes_loaded)
 
-        '''avg_precision_list = [node.average_precision_score for node in go_nodes_loaded]
-        mlflow.log_metric("Min Precision",  min(avg_precision_list))
-        mlflow.log_metric("Avg. Precision", np.mean(avg_precision_list))
-        mlflow.log_metric("Max. Precision", max(avg_precision_list))'''
-
         mlflow.log_metric("Min Evol. Time",  min(evol_times_list))
         mlflow.log_metric("Avg. Evol. Time", np.mean(evol_times_list))
         mlflow.log_metric("Max. Evol. Time", max(evol_times_list))
@@ -184,69 +174,30 @@ def create_node_datasets():
     mlflow.end_run() 
 
 ############################################################################
-#Inputs
-#labels_file_path
-#final_annot_features_path
-#train_plm_embeddings_path = 't5embeds/train_embeds.npy'
 
-#Outputs:
-multiclf_model_path = 'multiclf_model_a.obj'
-multiclf_hist_path = 'multiclf_hist_a.obj'
+#Outputs
+test_results_dir = configs['results_dir']
+results_path = path.join(test_results_dir, 'IA.tsv')
 
-def train_multclf_dnn(aspect_code, labels_file_path, train_plm_embeddings_train, train_plm_embeddings_val):
-    train_labels = np.load(labels_file_path)
+def classify_proteins():
+    if not path.exists(test_results_dir):
+        mkdir(test_results_dir)
 
-    print('Splitting')
-    train_labels_train, train_labels_val = sep_validation(train_labels, val_perc=0.2)
-    assert len(train_plm_embeddings_train) == len(train_labels_train)
-    print('Creating model')
-    INPUT_SHAPE = [train_plm_embeddings_train.shape[1]]
-    print(train_plm_embeddings_train.shape)
-    BATCH_SIZE = 5120
+    print('Loading terms, ids, and embeddings')
+    train_terms_all, train_protein_ids, train_plm_embeddings, _ = load_train()
 
-    model = tf.keras.Sequential([
-        tf.keras.layers.BatchNormalization(input_shape=INPUT_SHAPE),    
-        tf.keras.layers.Dense(units=train_plm_embeddings_train.shape[1]*0.75, activation='relu'),
-        tf.keras.layers.Dense(units=train_plm_embeddings_train.shape[1]*0.6, activation='relu'),
-        tf.keras.layers.Dense(units=train_plm_embeddings_train.shape[1]*0.5, activation='relu'),
-        tf.keras.layers.Dense(units=len(train_labels[0]),activation='sigmoid')
-    ])
+    test_set_names = train_protein_ids[:100]
+    test_set_features = train_plm_embeddings[:100]
 
+    print('Test set has', len(test_set_names), 'proteins')
 
-    # Compile model
-    model.compile(
-        optimizer=tf.keras.optimizers.Adam(learning_rate=0.001),
-        loss='binary_crossentropy',
-        metrics=['binary_accuracy', tf.keras.metrics.AUC()],
-    )
+    go_classifier = GoClassifier(models_dir, datasets_dir, load_go_graph())
 
-    history = model.fit(
-        train_plm_embeddings_train, train_labels_train,
-        validation_data=(train_plm_embeddings_val, train_labels_val),
-        batch_size=BATCH_SIZE,
-        epochs=6
-    )
-
-    pickle.dump(model, open(multiclf_model_path.replace('_a', aspect_code), 'wb'))
-    pickle.dump(history, open(multiclf_hist_path.replace('_a', aspect_code), 'wb'))
-
-def train_clf():
-    print('train_clf')
-    print('loading plm')
-    _, _, train_plm_embeddings, _ = load_train()
-    '''print('loading annot embedding')
-    final_annot_features = np.load(final_annot_features_path)
-    print('stacking')
-    train_plm_embeddings = np.hstack((train_plm_embeddings, final_annot_features))'''
-    print('load_labels')
-    aspect_labels_paths = [('BP', labels_bp_file_path), 
-                  ('MF', labels_mf_file_path), 
-                  ('CC', labels_cc_file_path)]
-    train_plm_embeddings_train, train_plm_embeddings_val = sep_validation(train_plm_embeddings, val_perc=0.2)
-    for aspect_code, labels_file_path in aspect_labels_paths:
-        print('Training for', aspect_code)
-        train_multclf_dnn(aspect_code, labels_file_path, train_plm_embeddings_train, train_plm_embeddings_val)
-        
+    n_classifications = go_classifier.create_classifications(test_set_features,
+                                                             test_set_names,
+                                                             results_path)
+    
+    print('Created', n_classifications, 'classifications')
 
 ############################################################################
 
@@ -261,7 +212,8 @@ if __name__ == "__main__":
     
     steps = [
         select_parent_nodes,
-        create_node_datasets
+        create_node_datasets,
+        classify_proteins
     ]
 
     to_run = steps[start_at:] if start_at > 0 else steps
