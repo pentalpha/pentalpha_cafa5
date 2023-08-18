@@ -9,6 +9,8 @@ import pickle
 import sys
 import json
 import os
+from datetime import datetime
+
 from go_classifier import GoClassifier
 
 from prepare_data import *
@@ -105,6 +107,9 @@ datasets_dir = configs['datasets_dir']
 models_dir = configs['models_dir']
 processes = configs['processes']
 test_size = configs['test_size']
+experiments_dir = "experiments"
+if not path.exists(experiments_dir):
+    mkdir(experiments_dir)
 
 def train_node(node_path, train_terms_all, train_protein_ids, train_plm_embeddings):
     node = pickle.load(open(node_path, 'rb'))
@@ -125,16 +130,31 @@ def train_aspect(go_nodes, aspect):
     train_terms_all, train_protein_ids, train_plm_embeddings, _ = load_train(
         aspect, configs['deepfried_path'])
 
-    experiment_name = "GO Clf. Training " + aspect
-    try:
+    experiment_name = "GO_Clf_Training_" + aspect
+    experiment_path = path.join(experiments_dir, experiment_name)
+    '''try:
         mlflow.set_experiment(experiment_name)
     except MlflowException:
         mlflow.create_experiment(experiment_name)
-    mlflow.start_run()
+    mlflow.start_run()'''
 
-    mlflow.log_param("GO Nodes", len(go_nodes))
+    if not path.exists(experiment_path):
+        mkdir(experiment_path)
+    
+    start_run = datetime.now()
+    day, hour = start_run.isoformat().replace('-','_').split('T')
+    run_path = path.join(experiment_path, 
+        day + '-' + hour.replace(':','_').split('.')[0])
+    mkdir(run_path)
+    experiment = {'start': datetime.now().isoformat()}
+    #go_nodes = go_nodes[-2:]
+    experiment["GO Nodes"] = len(go_nodes)
+    experiment["train_plm_embeddings"] = len(train_plm_embeddings)
+    experiment["train_terms_all"] = len(train_terms_all)
+
+    '''mlflow.log_param("GO Nodes", len(go_nodes))
     mlflow.log_param("train_plm_embeddings", len(train_plm_embeddings))
-    mlflow.log_param("train_terms_all", len(train_terms_all))
+    mlflow.log_param("train_terms_all", len(train_terms_all))'''
 
     go_node_params = [(node.path, train_terms_all, train_protein_ids, train_plm_embeddings)
                       for node in go_nodes]
@@ -156,19 +176,34 @@ def train_aspect(go_nodes, aspect):
 
         nodes_df_txt = node_tsv_results(go_nodes_loaded)
 
-        mlflow.log_metric("Min Evol. Time",  min(evol_times_list))
+        '''mlflow.log_metric("Min Evol. Time",  min(evol_times_list))
         mlflow.log_metric("Avg. Evol. Time", np.mean(evol_times_list))
         mlflow.log_metric("Max. Evol. Time", max(evol_times_list))
 
         mlflow.log_metric("Min ROC AUC",  min(roc_auc_list))
         mlflow.log_metric("Avg. ROC AUC", np.mean(roc_auc_list))
-        mlflow.log_metric("Max. ROC AUC", max(roc_auc_list))
+        mlflow.log_metric("Max. ROC AUC", max(roc_auc_list))'''
 
-        open('tmp/metaparameters_list.txt', 'w').write(metaparams_txt)
+        '''open('tmp/metaparameters_list.txt', 'w').write(metaparams_txt)
         mlflow.log_artifact('tmp/metaparameters_list.txt')
 
         open('tmp/nodes_df.tsv', 'w').write(nodes_df_txt)
-        mlflow.log_artifact('tmp/nodes_df.tsv')
+        mlflow.log_artifact('tmp/nodes_df.tsv')'''
+
+        experiment["Min Evol. Time"] = min(evol_times_list)
+        experiment["Avg. Evol. Time"] = np.mean(evol_times_list)
+        experiment["Max. Evol. Time"] = max(evol_times_list)
+        experiment["Min ROC AUC"] = min(roc_auc_list)
+        experiment["Avg. ROC AUC"] = np.mean(roc_auc_list)
+        experiment["Max. ROC AUC"] = max(roc_auc_list)
+        end_run = datetime.now()
+        experiment["end"] = end_run.isoformat()
+        duration = ((end_run-start_run).seconds)/60
+        experiment["duration"] = str(duration)+' minutes'
+        open(run_path+'/metaparameters_list.txt', 'w').write(metaparams_txt)
+        open(run_path+'/nodes_df.tsv', 'w').write(nodes_df_txt)
+        experiment_str = json.dumps(experiment,indent=2)
+        open(run_path+'/stats.json', 'w').write(experiment_str)
 
     mlflow.end_run() 
 

@@ -15,3 +15,4 @@ models/*
 results_test/*
 classification_nodes.tsv
 classification_tree.tsv
+experiments/*
