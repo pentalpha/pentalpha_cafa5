@@ -39,14 +39,34 @@ def find_alphafold(prot_ids):
     file_paths = [x if path.exists(x) else None for x in file_paths]
     return file_paths
 
-def load_train():
+def load_train_terms():
     train_terms = pd.read_csv(train_terms_path, sep="\t")
-    train_protein_ids = np.load(train_protein_ids_path)
-    train_plm_embeddings = np.load(train_plm_embeddings_path)
+    return train_terms
+
+def load_train(aspect, deepfried_path):
+    train_terms = pd.read_csv(train_terms_path, sep="\t")
+    deep_train_protein_ids_path = path.join(deepfried_path,
+        'train_ids_'+aspect+'.npy')
+    deep_train_plm_embeddings_path = path.join(deepfried_path,
+        'train_features_'+aspect+'.npy')
+    train_protein_ids = np.load(deep_train_protein_ids_path)
+    train_plm_embeddings = np.load(deep_train_plm_embeddings_path)
 
     # Now lets convert embeddings numpy array(train_embeddings) into pandas dataframe.
     column_num = train_plm_embeddings.shape[1]
     return train_terms, train_protein_ids, train_plm_embeddings, None
+
+def load_test(aspect, deepfried_path):
+    deep_test_protein_ids_path = path.join(deepfried_path,
+        'test_ids_'+aspect+'.npy')
+    deep_test_plm_embeddings_path = path.join(deepfried_path,
+        'test_features_'+aspect+'.npy')
+    test_protein_ids = np.load(deep_test_protein_ids_path)
+    test_plm_embeddings = np.load(deep_test_plm_embeddings_path)
+
+    # Now lets convert embeddings numpy array(test_embeddings) into pandas dataframe.
+    column_num = test_plm_embeddings.shape[1]
+    return test_protein_ids, test_plm_embeddings
 
 def load_go_graph():
     graph = obonet.read_obo(go_basic_obo_path)

@@ -4,9 +4,10 @@
     "datasets_dir": "datasets",
     "models_dir": "models",
     "results_dir": "results_test",
-    "processes": 4,
+    "processes": 1,
     "gens": 6,
     "pop": 20,
     "parents": 10,
-    "max_children": 150
+    "max_children": 150,
+    "deepfried_path": "/home/pitagoras/main/data/deepfried"
 }

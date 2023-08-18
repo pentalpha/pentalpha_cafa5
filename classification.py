@@ -47,7 +47,7 @@ keras_classification = {
         'hidden1': [0.25, 1.5],
         'hidden2': [0.25, 1.5],
         'hidden3': [0.25, 1.5],
-        'n_layers': [2,2]},
+        'n_layers': [2,3]},
     'discrete_gene_values': {
         'optimizer': ['AdamOptimizer'],
         'activator1': ['relu'],

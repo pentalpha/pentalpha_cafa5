@@ -33,14 +33,16 @@ configs = json.load(open("config.json", 'r'))
 if not path.exists('tmp'):
     mkdir('tmp')
 
+three_aspects = ['mf', 'cc', 'bp']
 ############################################################################
 
 #Outputs
 nodes_df_path = 'classification_nodes.tsv'
+nodes_tree_path = 'classification_tree.tsv'
 
 def select_parent_nodes():
     print('select_parent_nodes')
-    train_terms_all, _, _, _ = load_train()
+    train_terms_all = load_train_terms()
 
     classes = {}
     to_keep = []
@@ -63,8 +65,11 @@ def select_parent_nodes():
             removed += 1
     
     print('Removed', removed, 'nodes from gene ontology graph')
+    #All GO
     #roots = [('GO:0003674', 'mf'), ('GO:0005575','cc'), ('GO:0008150', 'bp')]
+    #Just MF
     #roots = [('GO:0003674', 'mf')]
+    #Testsubset of MF
     #roots = [('GO:0003824', 'mf'), ('GO:0005488','mf'), ('GO:0005215', 'mf')]
     roots = configs['roots']
 
@@ -75,10 +80,12 @@ def select_parent_nodes():
     id_parents.sort(key=lambda x: x[1])
 
     root_nodes = []
+    edges = []
     for root, aspect in roots:
-        new_nodes = create_node(root, classes, graph, id_to_name, aspect, 
+        new_nodes, new_edges = create_node(root, classes, graph, id_to_name, aspect, 
                                 max_children=configs['max_children'])
         root_nodes += new_nodes
+        edges += new_edges
     
     node_list1 = get_subnodes(root_nodes)
     print(len(node_list1), 'nodes')
@@ -86,6 +93,8 @@ def select_parent_nodes():
     print(len(node_list2), 'nodes')
     node_df = node_tsv(node_list2)
     open(nodes_df_path, 'w').write(node_df)
+    tree_str = '\n'.join([x+'\t'+y for x, y in edges])
+    open(nodes_tree_path, 'w').write(tree_str)
 
 ############################################################################
 #inputs
@@ -110,17 +119,13 @@ def train_node(node_path, train_terms_all, train_protein_ids, train_plm_embeddin
         os.remove(node_path)
         return False
 
-def create_node_datasets():
+def train_aspect(go_nodes, aspect):
+    print('Training', aspect, 'with', len(go_nodes), 'nodes')
     print('Loading terms, ids, and embeddings')
-    train_terms_all, train_protein_ids, train_plm_embeddings, _ = load_train()
+    train_terms_all, train_protein_ids, train_plm_embeddings, _ = load_train(
+        aspect, configs['deepfried_path'])
 
-    go_nodes = node_factory(nodes_df_path)
-    if not path.exists(datasets_dir):
-        mkdir(datasets_dir)
-    if not path.exists(models_dir):
-        mkdir(models_dir)
-
-    experiment_name = "GO Clf. Training"
+    experiment_name = "GO Clf. Training " + aspect
     try:
         mlflow.set_experiment(experiment_name)
     except MlflowException:
@@ -130,13 +135,7 @@ def create_node_datasets():
     mlflow.log_param("GO Nodes", len(go_nodes))
     mlflow.log_param("train_plm_embeddings", len(train_plm_embeddings))
     mlflow.log_param("train_terms_all", len(train_terms_all))
-    
-    go_node_paths = [path.join(datasets_dir, node.goid.lstrip('GO:') + '_node.obj')
-                     for node in go_nodes]
-    for node in tqdm(go_nodes):
-        node.set_path(datasets_dir)
-        pickle.dump(node, open(node.path, 'wb'))
-    
+
     go_node_params = [(node.path, train_terms_all, train_protein_ids, train_plm_embeddings)
                       for node in go_nodes]
     successes = None
@@ -173,31 +172,59 @@ def create_node_datasets():
 
     mlflow.end_run() 
 
+def create_node_datasets():
+
+    go_nodes = node_factory(nodes_df_path)
+
+    if not path.exists(datasets_dir):
+        mkdir(datasets_dir)
+    if not path.exists(models_dir):
+        mkdir(models_dir)
+
+    go_node_paths = [path.join(datasets_dir, node.goid.lstrip('GO:') + '_node.obj')
+                        for node in go_nodes]
+    for node in tqdm(go_nodes):
+        node.set_path(datasets_dir)
+        pickle.dump(node, open(node.path, 'wb'))
+
+    node_by_aspect = {'mf': [], 'cc': [], 'bp': []}
+
+    for go_node in go_nodes:
+        node_by_aspect[go_node.aspect].append(go_node)
+
+    for aspect, go_nodes_sublist in node_by_aspect.items():
+        train_aspect(go_nodes_sublist, aspect)
+
 ############################################################################
 
 #Outputs
 test_results_dir = configs['results_dir']
-results_path = path.join(test_results_dir, 'IA.tsv')
+results_paths = [(path.join(test_results_dir, x+'_predictions.tsv'),
+                 x)
+                 for x in three_aspects]
 
 def classify_proteins():
     if not path.exists(test_results_dir):
         mkdir(test_results_dir)
 
     print('Loading terms, ids, and embeddings')
-    train_terms_all, train_protein_ids, train_plm_embeddings, _ = load_train()
+    for results_path, aspect in results_paths:
+        test_protein_ids, test_plm_embeddings = load_test(
+            aspect, configs['deepfried_path'])
 
-    test_set_names = train_protein_ids[:100]
-    test_set_features = train_plm_embeddings[:100]
+        test_set_names = test_protein_ids[:1000]
+        test_set_features = test_plm_embeddings[:1000]
 
-    print('Test set has', len(test_set_names), 'proteins')
+        print('Test set has', len(test_set_names), 'proteins')
 
-    go_classifier = GoClassifier(models_dir, datasets_dir, load_go_graph())
+        go_classifier = GoClassifier(models_dir, datasets_dir, 
+                                     load_go_graph(), aspect)
 
-    n_classifications = go_classifier.create_classifications(test_set_features,
-                                                             test_set_names,
-                                                             results_path)
-    
-    print('Created', n_classifications, 'classifications')
+        n_classifications = go_classifier.create_classifications(test_set_features,
+                                                                test_set_names,
+                                                                results_path)
+        
+        print('Created', n_classifications, 'classifications')
 
 ############################################################################
 

@@ -8,11 +8,12 @@ from node import Node
 
 class GoClassifier():
 
-    def __init__(self, models_path, datasets_path, graph) -> None:
-        self.classifier_collection = self.load_models(models_path, datasets_path)
+    def __init__(self, models_path, datasets_path, graph, aspect) -> None:
+        self.classifier_collection = self.load_models(models_path, 
+            datasets_path, aspect)
         self.graph = graph
         
-    def load_models(self, models_path, datasets_path):
+    def load_models(self, models_path, datasets_path, aspect):
         node_basepath = datasets_path + '/*_node.obj'
         node_paths = glob.glob(node_basepath)
         print('Found', len(node_paths), 'nodes')
@@ -29,6 +30,8 @@ class GoClassifier():
         print('Loading classification nodes')
         nodes = [pickle.load(open(node_path, 'rb'))
                 for node_path, model_path in tqdm(node_and_model)]
+        nodes = [node for node in nodes if node.aspect == aspect]
+        print('Found', len(nodes), 'of aspect', aspect)
         print('Loading classification models')
         for node in tqdm(nodes):
             node.load_model()

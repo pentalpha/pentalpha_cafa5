@@ -12,6 +12,9 @@ from skmultilearn.model_selection import iterative_train_test_split
 from sklearn import metrics
 from time import time
 import json
+import random
+
+random.seed(1337)
 
 from metaheuristic_clf import ClassificationOptimizer
 from prepare_data import chunks
@@ -56,9 +59,20 @@ class Node():
                 + '\t' + str(self.evol_time))
 
     def create_train_dataset(self, datasets_dir, train_terms_all, 
-                             train_protein_ids_all, train_plm_embeddings, max_samples=30000):
-        train_terms_updated = train_terms_all[train_terms_all['term'].isin(self.subclasses)]
+                             train_protein_ids_all, train_plm_embeddings, 
+                             max_samples=30000):
+        
+        valid_terms = train_terms_all[train_terms_all['EntryID'].isin(train_protein_ids_all)]
+        train_terms_updated = valid_terms[valid_terms['term'].isin(self.subclasses)]
         train_protein_ids = train_terms_updated['EntryID'].unique().tolist()
+
+        #Add 10% of falses to dataset
+        false_protein_ids = [prot for prot in train_protein_ids_all 
+                             if not prot in train_protein_ids]
+        max_falses = len(train_protein_ids)*0.1
+        falses = random.sample(false_protein_ids, int(max_falses))
+        train_protein_ids = train_protein_ids + falses
+
         train_protein_ids.sort()
         labels_file_path = path.join(datasets_dir, self.goid.lstrip('GO:') + '_labels.npy')
         features_file_path = path.join(datasets_dir, self.goid.lstrip('GO:') + '_features.npy')
@@ -217,21 +231,23 @@ def create_subnodes_for_children(children, classes, graph, id_to_name, aspect, i
     children_descendants = [list(nx.ancestors(graph, child_id)) for child_id in children]
     n_subclasses = len(count_subclasses(children, children_descendants))
     subnodes = []
-    
+    subedges = []
     while n_subclasses > max_children:
         print('\t'*ident + 'Too big', n_subclasses)
         largest_class_index = 0
         for class_index in range(len(children)):
             if len(children_descendants[class_index]) > len(children_descendants[largest_class_index]):
                 largest_class_index = class_index
-        new_subnodes = create_node(children[largest_class_index], classes, graph, id_to_name, 
+        new_subnodes, new_edges = create_node(children[largest_class_index], classes, 
+                                    graph, id_to_name, 
                                    aspect, ident = ident+1, max_children=max_children)
+        subedges += new_edges
         children_descendants[largest_class_index] = []
         subnodes += new_subnodes
         n_subclasses = len(count_subclasses(children, children_descendants))
         print('\t'*ident + 'Reduced to', n_subclasses)
     
-    return children_descendants, subnodes
+    return children_descendants, subnodes, subedges
 
 def create_node(go_id, classes: dict, graph: MultiDiGraph, 
                 id_to_name: dict, aspect: str, ident = 0, max_children = 250):
@@ -239,10 +255,14 @@ def create_node(go_id, classes: dict, graph: MultiDiGraph,
     children = list(graph.predecessors(go_id))
     n_newnode = 0
     nodes_to_return = []
+    new_edges = []
     for children_sublist in chunks(children, max_children):
-        children_descendants, subnodes = create_subnodes_for_children(children_sublist, 
+        children_descendants, subnodes, subedges = create_subnodes_for_children(
+            children_sublist, 
             classes, graph, id_to_name, aspect, ident, max_children)
+        new_edges += subedges
         all_subclasses = list(count_subclasses(children, children_descendants))
+        new_edges += [(go_id, subclass) for subclass in all_subclasses]
         print('\t'*ident + 'Made node for', id_to_name[go_id], 'with', 
             len(children), '+', [len(x) for x in children_descendants])
         name_sufix = None if n_newnode == 0 else str(n_newnode)
@@ -250,7 +270,7 @@ def create_node(go_id, classes: dict, graph: MultiDiGraph,
                 additional_name = name_sufix)
         nodes_to_return.append(new_node)
         n_newnode += 1
-    return nodes_to_return
+    return nodes_to_return, new_edges
 
 def get_subnodes(nodes: List[Node]):
     new_nodes = []
@@ -279,10 +299,10 @@ def node_list(nodes: List[Node]):
 def remove_redundant_nodes(nodes: List[Node]):
     node_by_id = {}
     for node in nodes:
-        goid = node.goid
-        if not goid in node_by_id:
-            node_by_id[goid] = []
-        node_by_id[goid].append(node)
+        node_id = node.goid+'_'+','.join(sorted(node.subclasses))
+        if not node_id in node_by_id:
+            node_by_id[node_id] = []
+        node_by_id[node_id].append(node)
     
     node_list_final = []
     for parentid in node_by_id.keys():
