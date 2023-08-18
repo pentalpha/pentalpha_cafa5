@@ -66,10 +66,10 @@ class Node():
         train_terms_updated = valid_terms[valid_terms['term'].isin(self.subclasses)]
         train_protein_ids = train_terms_updated['EntryID'].unique().tolist()
 
-        #Add 10% of falses to dataset
+        #Add 5% of falses to dataset
         false_protein_ids = [prot for prot in train_protein_ids_all 
                              if not prot in train_protein_ids]
-        max_falses = len(train_protein_ids)*0.1
+        max_falses = len(train_protein_ids)*0.05
         falses = random.sample(false_protein_ids, int(max_falses))
         train_protein_ids = train_protein_ids + falses
 
