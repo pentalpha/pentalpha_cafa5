@@ -171,7 +171,8 @@ def train_aspect(go_nodes, aspect):
 
         roc_auc_list = [node.roc_auc_score for node in go_nodes_loaded]
         evol_times_list = [node.evol_time for node in go_nodes_loaded]
-        metaparams_list = [str(node.best_params) for node in go_nodes_loaded]
+        metaparams_list = [str(node.roc_auc_score)+': '+str(node.best_params) 
+            for node in go_nodes_loaded]
         metaparams_txt = '\n'.join(metaparams_list) + '\n'
 
         nodes_df_txt = node_tsv_results(go_nodes_loaded)

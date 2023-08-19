@@ -47,11 +47,11 @@ keras_classification = {
         'hidden1': [0.2, 1.75],
         'hidden2': [0.2, 1.75],
         'hidden3': [0.2, 1.75],
-        'n_layers': [2,3]},
+        'n_layers': [3,3]},
     'discrete_gene_values': {
         'optimizer': ['AdamOptimizer'],
         'activator1': ['relu'],
-        'activator2': ['relu', 'softmax'],
+        'activator2': ['relu'],
         'activator3': ['relu', 'softmax']},
     'gene_types': {'batch_size': int, 'learning_rate': float, 'epochs': int, 'hidden1': float, 
         'hidden2': float, 'hidden3': float, 'n_layers': int}
