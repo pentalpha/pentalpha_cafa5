@@ -94,14 +94,13 @@ class ClassificationOptimizer():
                 with parameters from param_dict
                 and trained with self.X_train, self.Y_train.
         """
-        optimizer = ClassificationOptimizer.make_optimizer(param_dict['optimizer'], param_dict['learning_rate'])
+        optimizer = ClassificationOptimizer.make_optimizer('AdamOptimizer', 
+                                                           param_dict['learning_rate'])
         print(param_dict)
         model = makeMultiClassifierModel(
             self.X_train, self.Y_train,
-            param_dict['batch_size'],
-            param_dict['n_layers'],
-            [param_dict['hidden1'], param_dict['hidden2'], param_dict['hidden3']],
-            [param_dict['activator1'], param_dict['activator2'], param_dict['activator3']],
+            param_dict['batch_size']
+            [param_dict['hidden1'], param_dict['hidden2']],
             optimizer, 
             param_dict['epochs'])
 

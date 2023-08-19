@@ -2,16 +2,17 @@ import tensorflow as tf
 import numpy as np
 
 def makeMultiClassifierModel(train_x, train_y,
-                        batch_size, n_layers, 
-                        size_factors, hidden_activations, 
+                        batch_size, 
+                        size_factors, 
                         optimizer, epochs):
     n_features = len(train_x[0])
     first = tf.keras.layers.BatchNormalization(input_shape=[n_features])
     last = tf.keras.layers.Dense(units=len(train_y[0]), activation='sigmoid')
     hidden_sizes = [n_features*size_factor for size_factor in size_factors]
-    hidden_layers = [tf.keras.layers.Dense(units=hidden_sizes[param_i], 
-                                           activation=hidden_activations[param_i])
-                    for param_i in range(n_layers) if hidden_sizes[param_i] > 0.0]
+    hidden_layers = [tf.keras.layers.Dense(units=hidden_sizes[0], 
+                                           activation='relu'),
+                    tf.keras.layers.Dense(units=hidden_sizes[1], 
+                                           activation='relu')]
     model = tf.keras.Sequential([first] + hidden_layers + [last])
     
     # Compile model
@@ -38,21 +39,15 @@ def makeMultiClassifierModel(train_x, train_y,
     return model
 
 keras_classification = {
-    'genes': ['batch_size', 'learning_rate', 'epochs', 'hidden1', 'hidden2', 'hidden3', 'n_layers'],
-    'discrete_genes': ['optimizer', 'activator1', 'activator2', 'activator3'],
+    'genes': ['batch_size', 'learning_rate', 'epochs', 'hidden1', 'hidden2'],
+    'discrete_genes': [],
     'gene_values': {
         'batch_size': [1200, 9000], 
         'learning_rate': [0.0003, 0.06], 
         'epochs': [8, 12],
         'hidden1': [0.2, 1.75],
-        'hidden2': [0.2, 1.75],
-        'hidden3': [0.2, 1.75],
-        'n_layers': [3,3]},
-    'discrete_gene_values': {
-        'optimizer': ['AdamOptimizer'],
-        'activator1': ['relu'],
-        'activator2': ['relu'],
-        'activator3': ['relu', 'softmax']},
+        'hidden2': [0.2, 1.75]},
+    'discrete_gene_values': {},
     'gene_types': {'batch_size': int, 'learning_rate': float, 'epochs': int, 'hidden1': float, 
-        'hidden2': float, 'hidden3': float, 'n_layers': int}
+        'hidden2': float}
 }
