@@ -99,7 +99,7 @@ class ClassificationOptimizer():
         print(param_dict)
         model = makeMultiClassifierModel(
             self.X_train, self.Y_train,
-            param_dict['batch_size']
+            param_dict['batch_size'],
             [param_dict['hidden1'], param_dict['hidden2']],
             optimizer, 
             param_dict['epochs'])
