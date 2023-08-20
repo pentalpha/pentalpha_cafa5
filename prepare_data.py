@@ -43,6 +43,32 @@ def load_train_terms():
     train_terms = pd.read_csv(train_terms_path, sep="\t")
     return train_terms
 
+def detect_only_zeros(np_vec):
+    indexes = [i for i in range(len(np_vec))
+                if sum(np_vec[i]) == 0]
+    return indexes
+
+def detect_only_ones(np_vec):
+    indexes = [i for i in range(len(np_vec))
+                if sum(np_vec[i]) == len(np_vec[i])]
+    return indexes
+
+def count_class_frequencies(np_vec, class_names):
+    sum_array = sum(np_vec)
+    class_freqs = [(i, sum_array[i]) for i in range(len(sum_array))]
+    class_freqs.sort(key=lambda x: x[1])
+    freqs = {}
+    for class_i, freq in class_freqs:
+        freqs[class_names[class_i]] = freq
+    
+    return freqs
+
+def delete_errors(erro_list, np_vec):
+    return np.delete(np_vec, erro_list, axis=0)
+
+def remove_classes(labels, unfrequent_indexes):
+    return np.delete(labels, unfrequent_indexes, axis=1)
+
 def load_train(aspect, deepfried_path):
     train_terms = pd.read_csv(train_terms_path, sep="\t")
     deep_train_protein_ids_path = path.join(deepfried_path,

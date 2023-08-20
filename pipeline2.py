@@ -50,7 +50,7 @@ def select_parent_nodes():
     classes = {}
     to_keep = []
     for goid, goid_group in train_terms_all.groupby("term"):
-        if len(goid_group) >= 30:
+        if len(goid_group) >= 40:
             classes[goid] = len(goid_group)
             to_keep.append(goid)
             
@@ -113,23 +113,24 @@ if not path.exists(experiments_dir):
     mkdir(experiments_dir)
 
 def train_node(node_path, train_terms_all, train_protein_ids, train_plm_embeddings):
-    no_success = True
-    tries = 3
-    while no_success > 0:
-        node = pickle.load(open(node_path, 'rb'))
-        node.create_train_dataset(datasets_dir, train_terms_all, 
-                                  train_protein_ids, train_plm_embeddings)
-        node.train(models_dir, test_size=test_size)
-        if not node.failed:
-            pickle_file_path = path.join(datasets_dir, node.name.lstrip('GO:') + '_node.obj')
-            node.erase_dataset()
-            pickle.dump(node, open(pickle_file_path, 'wb'))
-            return True
-        else:
-            tries -= 1
-
-    os.remove(node_path)
-    return False
+    
+    node = pickle.load(open(node_path, 'rb'))
+    node.set_model_path(models_dir)
+    '''if path.exists(node.model_path):
+        return True'''
+    node.create_train_dataset(datasets_dir, train_terms_all, 
+                                train_protein_ids, train_plm_embeddings,
+                                test_size)
+    node.train()
+    #node.test_rock_auc_error()
+    if not node.failed:
+        pickle_file_path = path.join(datasets_dir, node.name.lstrip('GO:') + '_node.obj')
+        node.erase_dataset()
+        pickle.dump(node, open(pickle_file_path, 'wb'))
+        return True
+    else:
+        os.remove(node_path)
+        return False
 
 def train_aspect(go_nodes, aspect):
     print('Training', aspect, 'with', len(go_nodes), 'nodes')

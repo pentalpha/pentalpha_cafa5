@@ -13,11 +13,12 @@ from sklearn import metrics
 from time import time
 import json
 import random
+from classification import makeMultiClassifierModel
 
 random.seed(1337)
 
 from metaheuristic_clf import ClassificationOptimizer
-from prepare_data import chunks
+from prepare_data import chunks, count_class_frequencies, delete_errors, detect_only_ones, detect_only_zeros, remove_classes
 
 configs = json.load(open("config.json", 'r'))
 
@@ -60,18 +61,18 @@ class Node():
 
     def create_train_dataset(self, datasets_dir, train_terms_all, 
                              train_protein_ids_all, train_plm_embeddings, 
-                             max_samples=30000):
+                             test_size, max_samples=30000):
         
         valid_terms = train_terms_all[train_terms_all['EntryID'].isin(train_protein_ids_all)]
         train_terms_updated = valid_terms[valid_terms['term'].isin(self.subclasses)]
         train_protein_ids = train_terms_updated['EntryID'].unique().tolist()
 
         #Add 5% of falses to dataset
-        false_protein_ids = [prot for prot in train_protein_ids_all 
+        '''false_protein_ids = [prot for prot in train_protein_ids_all 
                              if not prot in train_protein_ids]
         max_falses = len(train_protein_ids)*0.05
         falses = random.sample(false_protein_ids, int(max_falses))
-        train_protein_ids = train_protein_ids + falses
+        train_protein_ids = train_protein_ids + falses'''
 
         train_protein_ids.sort()
         labels_file_path = path.join(datasets_dir, self.goid.lstrip('GO:') + '_labels.npy')
@@ -134,6 +135,7 @@ class Node():
         f2 = open(features_file_path, 'wb')
         np.save(f2, features)
         f2.close()'''
+        
         self.features = features
         self.train_labels = train_labels
 
@@ -141,13 +143,107 @@ class Node():
         #self.labels_file_path = labels_file_path
         #self.train_protein_ids = train_protein_ids
 
-    def train(self, models_dir, test_size=0.25):
-        print('Splitting')
-        train_features, train_labels, test_features, test_labels = iterative_train_test_split(self.features, 
-            self.train_labels, test_size = test_size)
+        print('Splitting train and test')
+        a, b, c, d = iterative_train_test_split(
+            features, 
+            train_labels, test_size = test_size)
         
-        start_time = time()
+        self.train_features = a
+        self.train_labels = b
+        self.test_features = c
+        self.test_labels = d
+
+        print('Counting frequencies')
+        class_freqs = count_class_frequencies(self.test_labels, self.subclasses)
+        unfrequent = []
+        for goid, freq in class_freqs.items():
+            if freq < 8:
+                print(goid, freq)
+                unfrequent.append(goid)
+        if len(unfrequent) > 0:
+            unfrequent_indexes = [goid_to_col[goid] for goid in unfrequent]
+            self.train_labels = remove_classes(self.train_labels, unfrequent_indexes)
+            self.test_labels = remove_classes(self.test_labels, unfrequent_indexes)
+
+            print('Removing', unfrequent)
+            self.subclasses = [x for x in self.subclasses if not x in unfrequent]
+
+            assert len(self.train_labels[0]) == len(self.subclasses), str(len(self.train_labels[0])) + ' ' + str(len(self.subclasses))
+
+
+    def test_rock_auc_error(self):
+        
+        n_classes = len(self.test_labels[0])
+        n_samples = len(self.test_features)
+        mock_pred = [np.random.choice([0, 1], size=n_classes, p=[.1, .9]) 
+            for i in range(n_samples)]
         try:
+            roc_auc_score = metrics.roc_auc_score(self.test_labels, mock_pred)
+        except ValueError as err:
+            print(err)
+            print('Examples:')
+            print(self.test_labels[10])
+            print(self.test_labels[100])
+            print(self.test_labels[1000])
+            zeros = detect_only_zeros(self.test_labels)
+            ones = detect_only_ones(self.test_labels)
+            errors = zeros + ones
+            errors.sort()
+            print(len(errors), 'detected')
+
+            print('Deleting then')
+            self.test_labels = delete_errors(errors, self.test_labels)
+            mock_pred = delete_errors(errors, mock_pred)
+
+            zeros1 = detect_only_zeros(mock_pred)
+            ones1 = detect_only_ones(mock_pred)
+            errors1 = zeros1 + ones1
+            errors1.sort()
+            print(len(errors1), 'detected in pred')
+
+            print('Testing again')
+            tries = 100
+            while tries > 0:
+                try:
+                    roc_auc_score = metrics.roc_auc_score(self.test_labels, mock_pred)
+                    print('success')
+                    return None
+                except ValueError as err:
+                    tries -= 1
+            print('No more tries')
+
+            print('Counting class frequencies')
+            
+
+            quit()
+            '''print(err)
+
+            sums = [(i, sum(self.test_labels[i])) for i in range(len(self.test_labels))]
+            sums.sort(key=lambda x: x[1])
+
+            print('smallest')
+            print(sums[0])
+            print(self.test_labels[sums[0][0]])
+
+            print('largest')
+            print(sums[-1])
+            print(self.test_labels[sums[-1][0]])
+            quit()'''
+            '''for test_i in range(len(self.test_labels)):
+                test = self.test_labels[test_i]
+                total = sum(test)
+                if total == 0:
+                    zeros.append(test_i)
+                elif total == len(test):
+                    ones.append(test_i)
+            print(len(zeros), 'only zeros')
+            print(len(ones), 'only ones')
+
+            quit()'''
+
+    def train(self):
+        start_time = time()
+        '''try:
             ga = ClassificationOptimizer(train_features, test_features, 
                                     train_labels, test_labels, 
                                     gens=configs['gens'], pop=configs['pop'], 
@@ -160,27 +256,47 @@ class Node():
             self.roc_auc_score = 0.0
             self.best_params = {}
             self.failed = True
-            return None
-        
+            return None'''
+        param_dict = {'batch_size': 1250, 'learning_rate': 0.0016, 
+                      'epochs': 11, 'hidden1': 0.2, 
+                      'hidden2': 0.4}
+        optimizer = ClassificationOptimizer.make_optimizer('AdamOptimizer', 
+                                                           param_dict['learning_rate'])
+        print(param_dict)
+        annot_model = makeMultiClassifierModel(
+            self.train_features, self.train_labels,
+            param_dict['batch_size'],
+            [param_dict['hidden1'], param_dict['hidden2']],
+            optimizer, 
+            param_dict['epochs'])
         self.evol_time = time() - start_time
         print('GA terminando após', self.evol_time/60, 'minutos')
-        ga_info = [ga.solutions_by_generation, ga.fitness_by_generation, 
-                ga.evolved, ga.finish_type, self.evol_time]
-        annot_model = ga.reg
+        y_pred = annot_model.predict(self.test_features)
+        self.roc_auc_score = metrics.roc_auc_score(self.test_labels, y_pred)
+        self.best_params = param_dict
+        print('score', self.roc_auc_score)
+        print("Best Params:", param_dict)
+        print('evol_time', self.evol_time)
+        '''ga_info = [ga.solutions_by_generation, ga.fitness_by_generation, 
+                ga.evolved, ga.finish_type, self.evol_time]'''
+        
+        
+        
+        '''annot_model = ga.reg
         print("Best Params:", ga.best_params)
         print('\n'.join([str(fitvec) for fitvec in ga.fitness_by_generation]))
         print('evolved', ga.evolved)
         print('ga.finish_type', ga.finish_type)
-        print('evol_time', self.evol_time)
+        print('evol_time', self.evol_time)'''
 
         print(annot_model.summary())
 
-        self.roc_auc_score = ga.score
-        self.best_params = ga.best_params
+        '''self.roc_auc_score = ga.score
+        self.best_params = ga.best_params'''
 
         if self.roc_auc_score > 0.5:
-            self.model_path = path.join(models_dir, self.name.lstrip('GO:') + '_classifier.keras')
             annot_model.save(self.model_path)
+            self.failed = False
         else:
             self.failed = True
         
@@ -194,6 +310,9 @@ class Node():
 
     def set_path(self, datasets_dir):
         self.path = path.join(datasets_dir, self.name.lstrip('GO:') + '_node.obj')
+    
+    def set_model_path(self, models_dir):
+        self.model_path = path.join(models_dir, self.name.lstrip('GO:') + '_classifier.keras')
 
     def classify(self, input_X, protein_names):
         y_pred = self.annot_model.predict(input_X)
