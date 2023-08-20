@@ -11,6 +11,12 @@ class GoClassifier():
     def __init__(self, models_path, datasets_path, graph, aspect) -> None:
         self.classifier_collection = self.load_models(models_path, 
             datasets_path, aspect)
+        self.classifiers_by_depth = {}
+        for node in self.classifier_collection:
+            d = node.depth
+            if not d in self.classifiers_by_depth:
+                self.classifiers_by_depth[d] = []
+            self.classifiers_by_depth[d].append(node)
         self.graph = graph
         
     def load_models(self, models_path, datasets_path, aspect):
@@ -43,17 +49,19 @@ class GoClassifier():
         return classifications
         
     def create_classifications(self, feature_list, protein_list, output_path):
-        all_classifications = []
+        total_clfs = 0
         print('Making classifications')
-        for classifier in tqdm(self.classifier_collection):
-            all_classifications += self.classify_with_node(feature_list,
-                protein_list, classifier)
-        all_classifications.sort(
-            key = lambda clf: (clf[1], clf[2], clf[0], clf[3]))
-        
-        output = open(output_path, 'w')
-        output.write('CLASSIFIER_NAME\tPROTEIN\tGENE_ONTOLOGY\tPROB\n')
-        for clf in all_classifications:
-            output.write('\t'.join([str(x) for x in clf]) + '\n')
-
-        return len(all_classifications)
+        for depth, classifiers in self.classifiers_by_depth.items():
+            output = open(output_path.replace('.tsv', '_'+str(depth)+'.tsv'), 'w')
+            output.write('CLASSIFIER_NAME\tPROTEIN\tGENE_ONTOLOGY\tPROB\n')
+            print('Depth', depth)
+            for classifier in tqdm(classifiers):
+                new_clfs = self.classify_with_node(feature_list,
+                    protein_list, classifier)
+                total_clfs += len(new_clfs)
+                new_clfs.sort(
+                    key = lambda clf: (clf[1], clf[2], clf[0], clf[3]))
+                for clf in new_clfs:
+                    output.write('\t'.join([str(x) for x in clf]) + '\n')
+            output.close()
+        return total_clfs
