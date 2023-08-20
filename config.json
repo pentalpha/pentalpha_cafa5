@@ -5,9 +5,9 @@
     "models_dir": "models",
     "results_dir": "results_test",
     "processes": 2,
-    "gens": 5,
-    "pop": 32,
-    "parents": 16,
+    "gens": 2,
+    "pop": 12,
+    "parents": 6,
     "max_children": 250,
     "deepfried_path": "/data/home/pitagoras/software/DeepFRI/final_dataset"
 }

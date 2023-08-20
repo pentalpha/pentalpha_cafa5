@@ -178,8 +178,11 @@ class Node():
         self.roc_auc_score = ga.score
         self.best_params = ga.best_params
 
-        self.model_path = path.join(models_dir, self.name.lstrip('GO:') + '_classifier.keras')
-        annot_model.save(self.model_path)
+        if self.roc_auc_score > 0.5:
+            self.model_path = path.join(models_dir, self.name.lstrip('GO:') + '_classifier.keras')
+            annot_model.save(self.model_path)
+        else:
+            self.failed = True
         
     def erase_dataset(self):
         self.features = None
@@ -218,6 +221,16 @@ def node_factory(node_description_df_path: str) -> List[Node]:
             aspect, custom_name=nodename
         ))
     return new_nodes
+
+def load_node_depths(node_description_df_path: str) -> List[Node]:
+    stream = open(node_description_df_path, 'r')
+    depths = {}
+    header = stream.readline()
+    for rawline in stream.readlines():
+        cells = rawline.rstrip('\n').split('\t')
+        aspect, nodename, goid, node_depth, child_nodes, classes = cells
+        depths[nodename] = int(node_depth)
+    return depths
 
 def count_subclasses(children, children_descendants):
     subclasses = set(children)

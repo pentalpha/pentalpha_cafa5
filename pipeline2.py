@@ -10,13 +10,14 @@ import sys
 import json
 import os
 from datetime import datetime
+import networkx as nx
 
 from go_classifier import GoClassifier
 
 from prepare_data import *
 from node import (Node, create_node, get_subnodes, node_factory, 
                   node_tsv, remove_redundant_nodes, 
-                  node_tsv_results)
+                  node_tsv_results, load_node_depths)
 #base_dir_datasets = ''
 #base_dir_datasets = '/kaggle/input/d/pentalpha'
 
@@ -112,17 +113,23 @@ if not path.exists(experiments_dir):
     mkdir(experiments_dir)
 
 def train_node(node_path, train_terms_all, train_protein_ids, train_plm_embeddings):
-    node = pickle.load(open(node_path, 'rb'))
-    node.create_train_dataset(datasets_dir, train_terms_all, train_protein_ids, train_plm_embeddings)
-    node.train(models_dir, test_size=test_size)
-    if not node.failed:
-        pickle_file_path = path.join(datasets_dir, node.name.lstrip('GO:') + '_node.obj')
-        node.erase_dataset()
-        pickle.dump(node, open(pickle_file_path, 'wb'))
-        return True
-    else:
-        os.remove(node_path)
-        return False
+    no_success = True
+    tries = 3
+    while no_success > 0:
+        node = pickle.load(open(node_path, 'rb'))
+        node.create_train_dataset(datasets_dir, train_terms_all, 
+                                  train_protein_ids, train_plm_embeddings)
+        node.train(models_dir, test_size=test_size)
+        if not node.failed:
+            pickle_file_path = path.join(datasets_dir, node.name.lstrip('GO:') + '_node.obj')
+            node.erase_dataset()
+            pickle.dump(node, open(pickle_file_path, 'wb'))
+            return True
+        else:
+            tries -= 1
+
+    os.remove(node_path)
+    return False
 
 def train_aspect(go_nodes, aspect):
     print('Training', aspect, 'with', len(go_nodes), 'nodes')
@@ -239,6 +246,14 @@ results_paths = [(path.join(test_results_dir, x+'_predictions.tsv'),
                  x)
                  for x in three_aspects]
 
+def load_graph():
+    tree_str = open(nodes_tree_path, 'r').read().rstrip('\n').split("\n")
+    edges = [(line.split('\t')[0],
+              line.split('\t')[1]) 
+              for line in tree_str]
+    graph = nx.from_edgelist(edges)
+    return graph
+
 def classify_proteins():
     if not path.exists(test_results_dir):
         mkdir(test_results_dir)
@@ -264,6 +279,105 @@ def classify_proteins():
 
 ############################################################################
 
+#nodes_df_path = 'classification_nodes.tsv'
+#nodes_tree_path = 'classification_tree.tsv'
+
+final_result = path.join(test_results_dir, 'final_ia.tsv')
+def choose_prob(prot_id, goid, preds, solved_probs, go_graph):
+    '''print(prot_id, 'has', len(preds), 'predictions of', goid)
+    #print(len(solved_probs), 'current solved of', prot_id)
+    for parent_go, prob in preds:
+        print('\t', parent_go, prob)'''
+    parent_and_prob = [(parent_go.split('_')[0], prob) 
+        for parent_go, prob in preds]
+    parent_probs = {}
+    for parent, _ in parent_and_prob:
+        for _, _, goid, prob in solved_probs:
+            if parent == goid:
+                parent_probs[parent] = prob
+                break
+        if not parent in parent_probs:
+            parent_probs[parent] = -1
+    '''if -1 in parent_probs.values():
+        print(parent_probs)
+        for _, _, goid, prob in solved_probs:
+            print(goid, prob)
+            quit()'''
+    parent_and_prob.sort(key = lambda x: parent_probs[x[0]])
+    parent_higher, prob_higher = parent_and_prob[-1]
+    
+    return parent_higher, prob_higher
+
+def solve_protein(solved_probs, protein_preds, go_graph, depth):
+    prot_id = protein_preds[0][1]
+    current_solved = [x for x in solved_probs if x[1] == prot_id]
+    new_solved = []
+    by_goid = {}
+    for clf_name, prot_id, goid, prob in protein_preds:
+        if not goid in by_goid:
+            by_goid[goid] = []
+        by_goid[goid].append([clf_name, prob])
+
+    n_to_solve = 4
+    for goid, preds in by_goid.items():
+        if len(preds) == 1 or depth == 0:
+            pred = preds[0]
+            new_solved.append([pred[0], prot_id, goid, pred[1]])
+        else:
+            clf_name, prob = choose_prob(prot_id, goid, preds, 
+                current_solved, go_graph)
+            new_solved.append([clf_name, prot_id, goid, prob])
+            #quit()
+
+    return new_solved
+        
+def solve_probabilities(ia_file, go_graph, node_depths):
+    depths = sorted(list(set(node_depths.values())))
+    predictions_by_depth = {d: [] for d in depths}
+    probs_stream = open(ia_file, 'r')
+    header = probs_stream.readline()
+
+    print('Reading probabilities')
+    for rawline in probs_stream.readlines():
+        clf_name, prot_id, goid, prob_str = rawline.rstrip('\n').split('\t')
+        depth = node_depths[clf_name]
+        predictions_by_depth[depth].append(
+            [clf_name, prot_id, goid, float(prob_str)])
+    
+    solved_probs = []
+
+    for depth, preds in predictions_by_depth.items():
+        print(len(preds), 'predictions in depth', depth)
+        protein_ids = set()
+        for clf_name, prot_id, goid, prob in preds:
+            protein_ids.add(prot_id)
+        
+        for protein_id in protein_ids:
+            protein_preds = [x for x in preds if x[1] == protein_id]
+            new_solved = solve_protein(solved_probs, protein_preds, go_graph, depth)
+            solved_probs += new_solved
+        
+        print(len(solved_probs), 'solved predictions after depth', depth)
+    return solved_probs
+
+def create_ia_probs():
+    go_graph = load_graph()
+    node_depths = load_node_depths(nodes_df_path)
+
+    ia_files = ['results_test/IA.tsv']
+    probs = []
+    for ia_file in ia_files:
+        new_solved_probs = solve_probabilities(ia_file, go_graph, node_depths)
+        probs += new_solved_probs
+    
+    final_ia = open(final_result, 'w')
+    for prob_line in probs:
+        newline = prob_line[1]+'\t'+prob_line[2]+'\t'+str(prob_line[3]) + '\n'
+        final_ia.write(newline)
+    final_ia.close()
+############################################################################
+
+
 if __name__ == "__main__":
 
     start_at = 0
@@ -276,7 +390,8 @@ if __name__ == "__main__":
     steps = [
         select_parent_nodes,
         create_node_datasets,
-        classify_proteins
+        classify_proteins,
+        create_ia_probs
     ]
 
     to_run = steps[start_at:] if start_at > 0 else steps
