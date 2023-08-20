@@ -42,11 +42,11 @@ keras_classification = {
     'genes': ['batch_size', 'learning_rate', 'epochs', 'hidden1', 'hidden2'],
     'discrete_genes': [],
     'gene_values': {
-        'batch_size': [1200, 9000], 
-        'learning_rate': [0.0003, 0.06], 
-        'epochs': [8, 12],
-        'hidden1': [0.2, 1.75],
-        'hidden2': [0.2, 1.75]},
+        'batch_size': [1000, 2000], 
+        'learning_rate': [0.0002, 0.005], 
+        'epochs': [10, 12],
+        'hidden1': [0.15, 1.25],
+        'hidden2': [0.25, 1.5]},
     'discrete_gene_values': {},
     'gene_types': {'batch_size': int, 'learning_rate': float, 'epochs': int, 'hidden1': float, 
         'hidden2': float}

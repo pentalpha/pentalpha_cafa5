@@ -1,6 +1,6 @@
 {
     "test_size": 0.25,
-    "roots": [["GO:0003824", "mf"], ["GO:0005215", "mf"]],
+    "roots": [["GO:0003674", "mf"], ["GO:0005575","cc"], ["GO:0008150", "bp"]],
     "datasets_dir": "datasets",
     "models_dir": "models",
     "results_dir": "results_test",
@@ -8,6 +8,6 @@
     "gens": 5,
     "pop": 32,
     "parents": 16,
-    "max_children": 150,
-    "deepfried_path": "/home/pitagoras/main/data/deepfried"
+    "max_children": 250,
+    "deepfried_path": "/data/home/pitagoras/software/DeepFRI/final_dataset"
 }
