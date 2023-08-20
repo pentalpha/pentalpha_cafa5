@@ -136,6 +136,8 @@ class Node():
         np.save(f2, features)
         f2.close()'''
         
+        
+
         self.features = features
         self.train_labels = train_labels
 
@@ -170,6 +172,18 @@ class Node():
 
             assert len(self.train_labels[0]) == len(self.subclasses), str(len(self.train_labels[0])) + ' ' + str(len(self.subclasses))
 
+        zeros = detect_only_zeros(self.test_labels)
+        ones = detect_only_ones(self.test_labels)
+        errors = zeros + ones
+        errors.sort()
+
+        print(len(errors), 'detected')
+        if len(errors) > 0:
+            print('Deleting then')
+            self.test_labels = delete_errors(errors, self.test_labels)
+            self.train_labels = delete_errors(errors, self.train_labels)
+            self.train_features = delete_errors(errors, self.train_features)
+            self.test_features = delete_errors(errors, self.test_features)
 
     def test_rock_auc_error(self):
         
@@ -257,9 +271,11 @@ class Node():
             self.best_params = {}
             self.failed = True
             return None'''
-        param_dict = {'batch_size': 1250, 'learning_rate': 0.0016, 
+        '''param_dict = {'batch_size': 1250, 'learning_rate': 0.0016, 
                       'epochs': 11, 'hidden1': 0.2, 
-                      'hidden2': 0.4}
+                      'hidden2': 0.4}'''
+        param_dict = {'batch_size': 1070, 'learning_rate': 0.0015, 'epochs': 11, 
+                      'hidden1': 0.71, 'hidden2': 0.82}
         optimizer = ClassificationOptimizer.make_optimizer('AdamOptimizer', 
                                                            param_dict['learning_rate'])
         print(param_dict)
@@ -270,35 +286,43 @@ class Node():
             optimizer, 
             param_dict['epochs'])
         self.evol_time = time() - start_time
+        self.best_params = param_dict
         print('GA terminando após', self.evol_time/60, 'minutos')
         y_pred = annot_model.predict(self.test_features)
-        self.roc_auc_score = metrics.roc_auc_score(self.test_labels, y_pred)
-        self.best_params = param_dict
+        try:
+            self.roc_auc_score = metrics.roc_auc_score(self.test_labels, y_pred)
+        except ValueError as err:
+            self.failed = True
+            print(err)
+            print('AOC error at', self.goid, self.name)
+            return None
+        
         print('score', self.roc_auc_score)
         print("Best Params:", param_dict)
         print('evol_time', self.evol_time)
-        '''ga_info = [ga.solutions_by_generation, ga.fitness_by_generation, 
-                ga.evolved, ga.finish_type, self.evol_time]'''
-        
-        
-        
-        '''annot_model = ga.reg
-        print("Best Params:", ga.best_params)
-        print('\n'.join([str(fitvec) for fitvec in ga.fitness_by_generation]))
-        print('evolved', ga.evolved)
-        print('ga.finish_type', ga.finish_type)
-        print('evol_time', self.evol_time)'''
-
         print(annot_model.summary())
-
-        '''self.roc_auc_score = ga.score
-        self.best_params = ga.best_params'''
 
         if self.roc_auc_score > 0.5:
             annot_model.save(self.model_path)
             self.failed = False
         else:
             self.failed = True
+    '''ga_info = [ga.solutions_by_generation, ga.fitness_by_generation, 
+            ga.evolved, ga.finish_type, self.evol_time]'''
+    
+    
+    
+    '''annot_model = ga.reg
+    print("Best Params:", ga.best_params)
+    print('\n'.join([str(fitvec) for fitvec in ga.fitness_by_generation]))
+    print('evolved', ga.evolved)
+    print('ga.finish_type', ga.finish_type)
+    print('evol_time', self.evol_time)'''
+
+    
+
+    '''self.roc_auc_score = ga.score
+    self.best_params = ga.best_params'''
         
     def erase_dataset(self):
         self.features = None
