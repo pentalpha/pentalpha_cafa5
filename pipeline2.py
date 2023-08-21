@@ -55,7 +55,7 @@ def select_parent_nodes():
     to_keep = []
     for goid, goid_group in train_terms_all.groupby("term"):
         term = goid_group['aspect'].tolist()[0]
-        min_annots = 40 if term != 'BPO' else 100
+        min_annots = 40 if term != 'BPO' else 300
         if len(goid_group) >= min_annots:
             classes[goid] = len(goid_group)
             to_keep.append(goid)
@@ -92,7 +92,7 @@ def select_parent_nodes():
     edges = []
     for root, aspect in roots:
         new_nodes, new_edges = create_node(root, classes, graph, id_to_name, aspect, 
-                                max_children= (configs['max_children'] if aspect != 'bp' else 450))
+                                max_children= (configs['max_children'] if aspect != 'bp' else 500))
         root_nodes += new_nodes
         edges += new_edges
     

@@ -15,12 +15,12 @@ import json
 import random
 from classification import makeMultiClassifierModel
 
-random.seed(1337)
-
 from metaheuristic_clf import ClassificationOptimizer
 from prepare_data import chunks, count_class_frequencies, delete_errors, detect_only_ones, detect_only_zeros, remove_classes
 
 configs = json.load(open("config.json", 'r'))
+
+random.seed(1337)
 
 class Node():
 
