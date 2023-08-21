@@ -90,7 +90,7 @@ def select_parent_nodes():
     edges = []
     for root, aspect in roots:
         new_nodes, new_edges = create_node(root, classes, graph, id_to_name, aspect, 
-                                max_children=configs['max_children'])
+                                max_children= (configs['max_children'] if aspect != 'bp' else 600))
         root_nodes += new_nodes
         edges += new_edges
     
