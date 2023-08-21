@@ -5,6 +5,7 @@ from tqdm import tqdm
 from typing import List
 import subprocess
 import obonet
+import gzip
 
 train_terms_path = 'cafa-5-protein-function-prediction/Train/train_terms.tsv'
 go_basic_obo_path = 'cafa-5-protein-function-prediction/Train/go-basic.obo'
@@ -15,6 +16,18 @@ train_plm_embeddings_with_prot_path = 't5embeds/train_embeds_with_prot.npy'
 alphafold_dir = 'alphafold'
 protein2ipr_filtered_path = "interpro/protein2ipr_cafa5.dat"
 alphafold_url = 'https://alphafold.ebi.ac.uk/files/'
+
+def open_writer(filepath):
+    if filepath.endswith('.gz'):
+        return gzip.open(filepath, 'wt')
+    else:
+        return open(filepath, 'w')
+
+def open_reader(filepath):
+    if filepath.endswith('.gz'):
+        return gzip.open(filepath, 'rt')
+    else:
+        return open(filepath, 'r')
 
 def chunks(lst, n):
     """Yield successive n-sized chunks from lst."""

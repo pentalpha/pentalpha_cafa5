@@ -3,7 +3,7 @@ import mlflow
 from mlflow.exceptions import MlflowException
 import pandas as pd
 import numpy as np
-from os import path, mkdir
+from os import path, mkdir, remove
 from tqdm import tqdm
 import pickle
 import sys
@@ -257,7 +257,15 @@ def load_graph():
     edges = [(line.split('\t')[0],
               line.split('\t')[1]) 
               for line in tree_str]
-    graph = nx.from_edgelist(edges)
+    graph = nx.DiGraph(edges)
+    roots = []
+    for goid, degree in graph.in_degree():
+        if degree == 0:
+            roots.append(goid)
+    print('Connecting', roots, 'to hipotetical GO root')
+    for root in roots:
+        graph.add_edge('root', root)
+    
     return graph
 
 def classify_proteins():
@@ -281,7 +289,7 @@ def classify_proteins():
 
         
 
-        print('Splitting test')
+        print('Splitting test in chunks')
         n_views_objective = int(len(test_protein_ids)/7000)
         id_views = np.array_split(test_protein_ids, n_views_objective)
         feature_views = np.array_split(test_plm_embeddings, n_views_objective)
@@ -293,8 +301,10 @@ def classify_proteins():
         views_bar = tqdm(total=n_views)
         for features, ids in zip(feature_views, id_views):
             output_path = path.join(test_results_dir, 
-                aspect+'_probs_'+str(view_index)+'.tsv')
-            go_classifier.classify_proteins(features, ids, output_path)
+                aspect+'_probs_'+str(view_index)+'.tsv.gz')
+            output = open_writer(output_path)
+            go_classifier.classify_proteins(features, ids, output)
+            output.close()
             outputs.append(output_path)
             view_index += 1
             views_bar.update(1)
@@ -312,31 +322,77 @@ def classify_proteins():
 
 final_result = path.join(test_results_dir, 'final_ia.tsv')
 
-def create_ia_probs():
-    '''go_graph = load_graph()
-    node_depths = load_node_depths(nodes_df_path)
+def write_to_final_ia(protein_id, protein_lines, paths_dict, final_output, 
+                      min_prob=0.4, tops=200):
+    probs_dict = {goid: float(prob) for protid, goid, prob in protein_lines}
+    all_probs = []
+    for goid in probs_dict.keys():
+        prob = probs_dict[goid]
+        
+        paths = paths_dict[goid]
+        prob_paths = [[probs_dict[other_go] for other_go in p] for p in paths]
+        n_falses = min([len([x for x in prob_path if x < min_prob]) for prob_path in prob_paths])
+        if n_falses > 1:
+            weight = pow(0.8, n_falses)
+            prob = prob*weight
+        all_probs.append((goid, prob))
+    if len(all_probs) > tops:
+        all_probs.sort(key=lambda prot: prot[1])
+        all_probs = all_probs[-tops:]
+    for goid, prob in all_probs:
+        #if prob > 0.35:
+        final_output.write(protein_id + '\t' + goid + '\t' + str(prob) + '\n')
 
-    ia_files_basepaths = [test_results_dir + '/mf_predictions_*.tsv',
-                          test_results_dir + '/cc_predictions_*.tsv',
-                          test_results_dir + '/bp_predictions_*.tsv']
-    ia_files = (glob.glob(ia_files_basepaths[0])
-                +glob.glob(ia_files_basepaths[1])
-                +glob.glob(ia_files_basepaths[2]))
-    print('Found', len(ia_files), 'ia_files')
-    #sorting by node depth
-    ia_files.sort(key=lambda p: int(p.rstrip('.tsv').split('_')[-1]))
-    probs = []
-    for ia_file in tqdm(ia_files):
-        print('Processing', ia_file)
-        current_depth = int(ia_file.rstrip('.tsv').split('_')[-1])
-        solve_probabilities(ia_file, go_graph, node_depths, probs, current_depth)
-    
+def create_ia_probs():
+    graph = load_graph()
+    paths_dict = {}
+    for node in tqdm(graph.nodes):
+        paths = nx.all_simple_paths(graph, source='root', target=node)
+        real_paths = []
+        for p in paths:
+            fullpath = [other_go for other_go in p]
+            if len(fullpath) >= 3:
+                real_paths.append(fullpath[2:][:-1])
+        
+        if len(real_paths) > 0:
+            min_len = min([len(p) for p in real_paths])
+            real_paths = [p for p in real_paths if len(p) == min_len]
+
+            paths_dict[node] = real_paths
+        else:
+            print(node, 'has no path to root')
+            print(paths)
+        
     final_ia = open(final_result, 'w')
-    for prob_line in probs:
-        newline = prob_line[0]+'\t'+prob_line[1]+'\t'+str(prob_line[2]) + '\n'
-        final_ia.write(newline)
-    final_ia.close()'''
-    pass
+    print('Saving at', final_result)
+
+    
+    for aspect in three_aspects:
+        last_protein = None
+        protein_cache = []
+        bar = tqdm(total=140000)
+        probs_paths = glob.glob(test_results_dir + '/'+aspect+'_probs_*.tsv.gz')
+        for prob_path in tqdm(probs_paths):
+            print('reading', prob_path)
+            for rawline in open_reader(prob_path):
+                cells = rawline.rstrip('\n').split('\t')
+                if len(cells) == 3:
+                    protid, goid, prob = cells
+                    if not last_protein:
+                        last_protein = protid
+                    elif protid != last_protein:
+                        #print('writing', last_protein)
+                        write_to_final_ia(last_protein, protein_cache, paths_dict, final_ia)
+                        bar.update(1)
+                        protein_cache = []
+                    
+                    protein_cache.append(cells)
+                    last_protein = protid
+            remove(prob_path)
+        if len(protein_cache) > 0:
+            write_to_final_ia(last_protein, protein_cache, paths_dict, final_ia)
+        bar.close()
+    final_ia.close()
 ############################################################################
 
 
