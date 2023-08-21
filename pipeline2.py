@@ -221,8 +221,6 @@ def train_aspect(go_nodes, aspect):
         experiment_str = json.dumps(experiment,indent=2)
         open(run_path+'/stats.json', 'w').write(experiment_str)
 
-    mlflow.end_run() 
-
 def create_node_datasets():
 
     go_nodes = node_factory(nodes_df_path)
