@@ -303,7 +303,10 @@ class Node():
         print(annot_model.summary())
 
         if self.roc_auc_score > 0.5:
-            annot_model.save(self.model_path)
+            json_to_save = annot_model.to_json()
+            open(self.model_path, 'w').write(json_to_save)
+            annot_model.save_weights(self.weights_path)
+            #annot_model.save(self.model_path)
             self.failed = False
         else:
             self.failed = True
@@ -325,21 +328,58 @@ class Node():
     self.best_params = ga.best_params'''
         
     def erase_dataset(self):
-        self.features = None
+        self.train_features = None
         self.train_labels = None
+        self.test_features = None
+        self.test_labels = None
         self.annot_model = None
 
+    def set_model_path(self, models_dir):
+        model_base_path = path.join(models_dir, self.name.lstrip('GO:') + '_classifier.')
+        self.model_path = model_base_path+'json'
+        self.weights_path = model_base_path+'h5'
+
     def load_model(self):
-        self.annot_model = tf.keras.models.load_model(self.model_path)
+        loaded_model = tf.keras.models.model_from_json(
+            open(self.model_path, 'r').read())
+        loaded_model.load_weights(self.weights_path)
+        self.annot_model = loaded_model
 
     def set_path(self, datasets_dir):
-        self.path = path.join(datasets_dir, self.name.lstrip('GO:') + '_node.obj')
+        self.path = path.join(datasets_dir, self.name.lstrip('GO:') + '_node.json')
     
-    def set_model_path(self, models_dir):
-        self.model_path = path.join(models_dir, self.name.lstrip('GO:') + '_classifier.keras')
+    def to_json_untrained(self):
+        data = {
+            "aspect": self.aspect,
+            "name": self.name,
+            "goid": self.goid,
+            "depth": self.depth,
+            "subclasses": self.subclasses,
+            "path": self.path
+        }
+        json_str = json.dumps(data, indent=2)
+        open(self.path, 'w').write(json_str)
+
+    def to_json(self):
+        data = {
+            "aspect": self.aspect,
+            "name": self.name,
+            "goid": self.goid,
+            "depth": self.depth,
+            "subclasses": self.subclasses,
+            "roc_auc_score": self.roc_auc_score,
+            "evol_time": self.evol_time,
+            "model_path": self.model_path,
+            "weights_path": self.weights_path,
+            "failed": self.failed,
+            "best_params": self.best_params,
+            "path": self.path
+        }
+        json_str = json.dumps(data, indent=2)
+        open(self.path, 'w').write(json_str)
 
     def classify(self, input_X, protein_names):
-        y_pred = self.annot_model.predict(input_X)
+        y_pred = self.annot_model.predict(input_X, verbose = 0)
         assert len(y_pred[0]) == len(self.subclasses)
         predicted = []
         for protein_index in range(len(y_pred)):
@@ -348,9 +388,35 @@ class Node():
             prob_tuples = [(self.name, prot_name, 
                             self.subclasses[i], probs_vec[i]) 
                            for i in range(len(probs_vec))]
-            predicted += prob_tuples
+            predicted.append(prob_tuples)
         
         return predicted
+
+def node_from_json(node_path):
+    data = json.loads(open(node_path,'r').read())
+    node = Node(
+        data['goid'], data['subclasses'], [], data['depth'], data['aspect']
+    )
+    node.name = data['name']
+    node.roc_auc_score = data['roc_auc_score']
+    node.evol_time = data['evol_time']
+    node.model_path = data['model_path']
+    node.failed = data['failed']
+    node.best_params = data['best_params']
+    node.path = data['path']
+    node.weights_path = data['weights_path']
+
+    return node
+
+def node_from_json_untrained(node_path):
+    data = json.loads(open(node_path,'r').read())
+    node = Node(
+        data['goid'], data['subclasses'], [], data['depth'], data['aspect']
+    )
+    node.name = data['name']
+    node.path = data['path']
+
+    return node
 
 def node_factory(node_description_df_path: str) -> List[Node]:
     stream = open(node_description_df_path, 'r')

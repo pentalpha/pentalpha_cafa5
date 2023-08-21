@@ -82,11 +82,16 @@ def load_train(aspect, deepfried_path):
     column_num = train_plm_embeddings.shape[1]
     return train_terms, train_protein_ids, train_plm_embeddings, None
 
-def load_test(aspect, deepfried_path):
+def load_test(aspect, deepfried_path, small=False):
     deep_test_protein_ids_path = path.join(deepfried_path,
         'test_ids_'+aspect+'.npy')
     deep_test_plm_embeddings_path = path.join(deepfried_path,
         'test_features_'+aspect+'.npy')
+    if small:
+        deep_test_protein_ids_path = deep_test_protein_ids_path.replace(
+            'ids_', 'ids_small_')
+        deep_test_plm_embeddings_path = deep_test_plm_embeddings_path.replace(
+            'features_', 'features_small_')
     test_protein_ids = np.load(deep_test_protein_ids_path)
     test_plm_embeddings = np.load(deep_test_plm_embeddings_path)
 

@@ -16,9 +16,9 @@ import glob
 from go_classifier import GoClassifier
 
 from prepare_data import *
-from node import (Node, create_node, get_subnodes, node_factory, 
+from node import (Node, create_node, get_subnodes, node_factory, node_from_json_untrained, 
                   node_tsv, remove_redundant_nodes, 
-                  node_tsv_results, load_node_depths)
+                  node_tsv_results, load_node_depths, node_from_json)
 from post_processing import solve_probabilities
 #base_dir_datasets = ''
 #base_dir_datasets = '/kaggle/input/d/pentalpha'
@@ -42,8 +42,10 @@ three_aspects = ['mf', 'cc', 'bp']
 ############################################################################
 
 #Outputs
-nodes_df_path = 'classification_nodes.tsv'
-nodes_tree_path = 'classification_tree.tsv'
+if not path.exists(configs['whole_model_path']):
+    mkdir(configs['whole_model_path'])
+nodes_df_path = path.join(configs['whole_model_path'], 'classification_nodes.tsv')
+nodes_tree_path = path.join(configs['whole_model_path'], 'classification_tree.tsv')
 
 def select_parent_nodes():
     print('select_parent_nodes')
@@ -106,8 +108,8 @@ def select_parent_nodes():
 #nodes_df_path
 
 #Outputs
-datasets_dir = configs['datasets_dir']
-models_dir = configs['models_dir']
+datasets_dir = path.join(configs['whole_model_path'], configs['datasets_dir'])
+models_dir = path.join(configs['whole_model_path'], configs['models_dir'])
 processes = configs['processes']
 test_size = configs['test_size']
 experiments_dir = "experiments"
@@ -116,7 +118,7 @@ if not path.exists(experiments_dir):
 
 def train_node(node_path, train_terms_all, train_protein_ids, train_plm_embeddings):
     
-    node = pickle.load(open(node_path, 'rb'))
+    node = node_from_json_untrained(node_path)
     node.set_model_path(models_dir)
     '''if path.exists(node.model_path):
         return True'''
@@ -125,13 +127,13 @@ def train_node(node_path, train_terms_all, train_protein_ids, train_plm_embeddin
                                 test_size)
     node.train()
     #node.test_rock_auc_error()
+    os.remove(node_path)
     if not node.failed:
-        pickle_file_path = path.join(datasets_dir, node.name.lstrip('GO:') + '_node.obj')
-        node.erase_dataset()
-        pickle.dump(node, open(pickle_file_path, 'wb'))
+        #pickle_file_path = path.join(datasets_dir, node.name.lstrip('GO:') + '_node.obj')
+        #node.erase_dataset()
+        node.to_json()
         return True
     else:
-        os.remove(node_path)
         return False
 
 def train_aspect(go_nodes, aspect):
@@ -174,10 +176,11 @@ def train_aspect(go_nodes, aspect):
             successes = p.starmap(train_node, go_node_params)
     else:
         successes = [train_node(*params) for params in go_node_params]
+        #successes = [True]
 
     if successes:
         go_node_paths = [go_node_params[i][0] for i in range(len(successes)) if successes[i]]
-        go_nodes_loaded = [pickle.load(open(go_node_path, 'rb')) for go_node_path in go_node_paths]
+        go_nodes_loaded = [node_from_json(go_node_path) for go_node_path in go_node_paths]
 
         roc_auc_list = [node.roc_auc_score for node in go_nodes_loaded]
         evol_times_list = [node.evol_time for node in go_nodes_loaded]
@@ -231,7 +234,7 @@ def create_node_datasets():
                         for node in go_nodes]
     for node in tqdm(go_nodes):
         node.set_path(datasets_dir)
-        pickle.dump(node, open(node.path, 'wb'))
+        node.to_json_untrained()
 
     node_by_aspect = {'mf': [], 'cc': [], 'bp': []}
 
@@ -261,24 +264,46 @@ def classify_proteins():
     if not path.exists(test_results_dir):
         mkdir(test_results_dir)
 
-    print('Loading terms, ids, and embeddings')
+    
     for results_path, aspect in results_paths:
+        print('Starting up classiifer')
+        go_classifier = GoClassifier(nodes_df_path, 
+                                     models_dir, datasets_dir, 
+                                     load_go_graph(), aspect)
+        go_classifier.set_limit()
+
+        print('Loading terms, ids, and embeddings')
         test_protein_ids, test_plm_embeddings = load_test(
             aspect, configs['deepfried_path'])
 
-        test_set_names = test_protein_ids[:5000]
-        test_set_features = test_plm_embeddings[:5000]
+        '''test_set_names = test_protein_ids[:5000]
+        test_set_features = test_plm_embeddings[:5000]'''
 
-        print('Test set has', len(test_set_names), 'proteins')
+        
 
-        go_classifier = GoClassifier(models_dir, datasets_dir, 
-                                     load_go_graph(), aspect)
-
-        n_classifications = go_classifier.create_classifications(test_set_features,
+        print('Splitting test')
+        n_views_objective = int(len(test_protein_ids)/7000)
+        id_views = np.array_split(test_protein_ids, n_views_objective)
+        feature_views = np.array_split(test_plm_embeddings, n_views_objective)
+        n_views = len(id_views)
+        print(n_views, 'views created')
+        print('Running predictions')
+        outputs = []
+        view_index = 0
+        views_bar = tqdm(total=n_views)
+        for features, ids in zip(feature_views, id_views):
+            output_path = path.join(test_results_dir, 
+                aspect+'_probs_'+str(view_index)+'.tsv')
+            go_classifier.classify_proteins(features, ids, output_path)
+            outputs.append(output_path)
+            view_index += 1
+            views_bar.update(1)
+        views_bar.close()
+        '''n_classifications = go_classifier.create_classifications(test_set_features,
                                                                 test_set_names,
                                                                 results_path)
         
-        print('Created', n_classifications, 'classifications')
+        print('Created', n_classifications, 'classifications')'''
 
 ############################################################################
 
@@ -287,9 +312,8 @@ def classify_proteins():
 
 final_result = path.join(test_results_dir, 'final_ia.tsv')
 
-
 def create_ia_probs():
-    go_graph = load_graph()
+    '''go_graph = load_graph()
     node_depths = load_node_depths(nodes_df_path)
 
     ia_files_basepaths = [test_results_dir + '/mf_predictions_*.tsv',
@@ -311,7 +335,8 @@ def create_ia_probs():
     for prob_line in probs:
         newline = prob_line[0]+'\t'+prob_line[1]+'\t'+str(prob_line[2]) + '\n'
         final_ia.write(newline)
-    final_ia.close()
+    final_ia.close()'''
+    pass
 ############################################################################
 
 

@@ -32,14 +32,16 @@ def choose_prob(prot_id, goid, preds, solved_probs):
     
     return parent_higher, prob_higher
 
-def solve_protein(solved_probs, protein_preds: pd.DataFrame, depth, prot_id):
-    current_solved = [x for x in solved_probs if x[0] == prot_id]
+def solve_protein(current_solved, protein_preds, depth, prot_id):
+    #current_solved = [x for x in solved_probs if x[0] == prot_id]
     new_solved = []
     by_goid = {}
-    for index, row in protein_preds.iterrows():
-        if not row['GENE_ONTOLOGY'] in by_goid:
-            by_goid[row['GENE_ONTOLOGY']] = []
-        by_goid[row['GENE_ONTOLOGY']].append([row['CLASSIFIER_NAME'], row['PROB']])
+    #print(protein_preds[0])
+    #print(current_solved[0] if len(current_solved) > 0 else None)
+    for clf_name, _, goid, prob in protein_preds:
+        if not goid in by_goid:
+            by_goid[goid] = []
+        by_goid[goid].append([clf_name, prob])
 
     n_to_solve = 4
     for goid, preds in by_goid.items():

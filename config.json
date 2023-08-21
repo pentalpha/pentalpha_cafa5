@@ -1,13 +1,14 @@
 {
     "test_size": 0.25,
-    "roots": [["GO:0003674", "mf"], ["GO:0005575","cc"], ["GO:0008150", "bp"]],
+    "roots": [["GO:0003674", "mf"]],
     "datasets_dir": "datasets",
     "models_dir": "models",
     "results_dir": "results_test",
-    "processes": 4,
+    "processes": 1,
     "gens": 2,
     "pop": 12,
     "parents": 6,
     "max_children": 250,
-    "deepfried_path": "/data/home/pitagoras/software/DeepFRI/final_dataset"
+    "deepfried_path": "/home/pitagoras/main/data/deepfried",
+    "whole_model_path": "final_model"
 }
